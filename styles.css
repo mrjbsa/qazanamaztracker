@@ -1,0 +1,153 @@
+  :root{
+    --ink:#0f2a24;
+    --emerald:#145c48;
+    --emerald-deep:#0b3d30;
+    --emerald-darker:#082c22;
+    --emerald-pale:#e8f2ee;
+    --gold:#c8952c;
+    --gold-light:#e3b756;
+    --sand:#f6f1e7;
+    --sand-dark:#efe7d4;
+    --line:#e0d8c4;
+    --danger:#b3403a;
+  }
+  *{box-sizing:border-box;}
+  body{
+    font-family:'Inter',sans-serif;
+    background:var(--sand);
+    color:var(--ink);
+    margin:0;
+  }
+  h1,h2,h3,.font-display{ font-family:'Amiri', serif; }
+  .arabic-text{ font-family:'Amiri', serif; direction:rtl; unicode-bidi:isolate; }
+  .anniversary-banner{ animation:fadeIn .4s ease both; }
+  .no-print{}
+  @media print{ .no-print{ display:none !important; } }
+
+  /* ---------- Login screen ---------- */
+  .login-wrap{
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(200,149,44,.10), transparent 45%),
+      radial-gradient(circle at 80% 85%, rgba(200,149,44,.08), transparent 40%),
+      linear-gradient(160deg, var(--emerald-darker), var(--emerald-deep) 55%, var(--emerald));
+    padding:24px;
+    position:relative; overflow:hidden;
+  }
+  .login-wrap::before{
+    content:'';
+    position:absolute; inset:0;
+    background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.035) 0 2px, transparent 2px 26px),
+                       repeating-linear-gradient(-45deg, rgba(255,255,255,.035) 0 2px, transparent 2px 26px);
+    pointer-events:none;
+  }
+  .login-card{
+    position:relative; z-index:1;
+    background:var(--sand); width:100%; max-width:420px;
+    border-radius:18px; padding:38px 34px 30px;
+    box-shadow:0 30px 60px -20px rgba(0,0,0,.55);
+    animation:riseIn .55s cubic-bezier(.2,.8,.2,1) both;
+    border:1px solid rgba(200,149,44,.35);
+  }
+  @keyframes riseIn{ from{opacity:0; transform:translateY(18px);} to{opacity:1; transform:translateY(0);} }
+  .crescent{
+    width:56px; height:56px; margin:0 auto 14px; position:relative;
+  }
+  .crescent svg{ width:100%; height:100%; filter:drop-shadow(0 3px 6px rgba(200,149,44,.4)); }
+  .role-tab{
+    flex:1; padding:9px 0; text-align:center; border-radius:10px; font-weight:600; font-size:14px;
+    color:var(--emerald); cursor:pointer; transition:all .2s ease; border:1px solid var(--line);
+  }
+  .role-tab.active{ background:var(--emerald); color:#fff; border-color:var(--emerald); box-shadow:0 6px 14px -6px rgba(20,92,72,.6); }
+  .role-tab:not(.active):hover{ background:var(--emerald-pale); }
+  .gold-btn{ background:linear-gradient(135deg, var(--gold-light), var(--gold)); color:#2a1d05; transition:transform .15s ease, box-shadow .15s ease; }
+  .gold-btn:hover{ transform:translateY(-1px); box-shadow:0 10px 18px -8px rgba(200,149,44,.55); }
+  .gold-btn:active{ transform:translateY(0); }
+  .emerald-btn{ background:var(--emerald); color:#fff; transition:transform .15s ease, box-shadow .15s ease, background .15s ease; }
+  .emerald-btn:hover{ background:var(--emerald-deep); transform:translateY(-1px); box-shadow:0 10px 18px -8px rgba(11,61,48,.5); }
+  .emerald-btn:active{ transform:translateY(0); }
+
+  /* ---------- App shell ---------- */
+  .app-shell{ display:flex; min-height:100vh; }
+  .sidebar{
+    width:230px; flex-shrink:0; background:linear-gradient(180deg, var(--emerald-deep), var(--emerald-darker));
+    color:#f3ede0; display:flex; flex-direction:column; padding:20px 14px;
+  }
+  .sidebar .brand{ font-family:'Amiri',serif; font-size:19px; padding:0 6px 18px; border-bottom:1px solid rgba(255,255,255,.12); margin-bottom:14px; line-height:1.3; }
+  .nav-item{
+    display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; font-size:14px; font-weight:500;
+    color:#d9d0ba; cursor:pointer; transition:background .18s ease, color .18s ease, padding-left .18s ease; margin-bottom:3px;
+  }
+  .nav-item:hover{ background:rgba(255,255,255,.06); color:#fff; padding-left:16px; }
+  .nav-item.active{ background:rgba(200,149,44,.18); color:var(--gold-light); border-right:3px solid var(--gold); }
+  .sidebar .foot{ margin-top:auto; padding-top:14px; border-top:1px solid rgba(255,255,255,.12); }
+  .main-col{ flex:1; min-width:0; }
+  .topbar{ background:#fff; border-bottom:1px solid var(--line); padding:14px 26px; display:flex; justify-content:space-between; align-items:center; }
+  .content{ padding:24px; max-width:1180px; margin:0 auto; }
+  .card{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:22px; box-shadow:0 1px 3px rgba(15,42,36,.04); animation:fadeIn .35s ease both; }
+  @keyframes fadeIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+
+  /* ---------- Progress ring ---------- */
+  .ring-fill{ transition:stroke-dashoffset .8s cubic-bezier(.3,.8,.3,1); }
+
+  /* ---------- Prayer counter tile ---------- */
+  .prayer-tile{
+    border:1px solid var(--line); border-radius:14px; padding:16px; background:var(--sand);
+    transition:box-shadow .2s ease, border-color .2s ease;
+  }
+  .prayer-tile:hover{ border-color:var(--gold); box-shadow:0 8px 20px -12px rgba(200,149,44,.5); }
+  .bar-track{ height:8px; border-radius:99px; background:var(--sand-dark); overflow:hidden; }
+  .bar-fill{ height:100%; border-radius:99px; background:linear-gradient(90deg, var(--emerald), var(--gold)); transition:width .6s cubic-bezier(.3,.8,.3,1); }
+  .plus-btn{
+    width:100%; padding:10px; border-radius:10px; font-weight:700; font-size:14px;
+    background:var(--emerald); color:#fff; transition:transform .12s ease, background .15s ease;
+  }
+  .plus-btn:hover{ background:var(--emerald-deep); }
+  .plus-btn:active{ transform:scale(.94); }
+  .plus-btn.pulse{ animation:pulseGo .38s ease; }
+  @keyframes pulseGo{ 0%{ box-shadow:0 0 0 0 rgba(200,149,44,.55);} 100%{ box-shadow:0 0 0 14px rgba(200,149,44,0);} }
+  .minus-btn{ padding:10px 12px; border-radius:10px; font-weight:700; background:var(--sand-dark); color:var(--ink); transition:background .15s ease; }
+  .minus-btn:hover{ background:#e6dcc0; }
+
+  .staff-avatar{ width:56px; height:56px; border-radius:50%; object-fit:cover; border:2px solid var(--gold); }
+  .table-row:hover{ background:var(--emerald-pale); }
+
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:99px; }
+  .overflow-x-auto{ -webkit-overflow-scrolling:touch; }
+
+  /* ---------- Mobile responsive ---------- */
+  @media (max-width: 768px){
+    .app-shell{ flex-direction:column; min-height:100vh; }
+    .sidebar{
+      width:100%; flex-direction:row; align-items:center; padding:8px 10px;
+      overflow-x:auto; -webkit-overflow-scrolling:touch; scroll-behavior:smooth;
+      position:relative;
+    }
+    .sidebar::-webkit-scrollbar{ height:5px; }
+    .sidebar::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.3); border-radius:99px; }
+    .sidebar .brand{ display:none; }
+    .sidebar > .flex-1{ display:flex; flex-direction:row; gap:4px; flex:none; }
+    .nav-item{ flex-direction:column; gap:2px; font-size:10px; padding:8px 9px; margin-bottom:0; white-space:nowrap; text-align:center; }
+    .nav-item:hover{ padding-left:9px; }
+    .nav-item.active{ border-right:none; border-bottom:3px solid var(--gold); }
+    .sidebar .foot{ margin-top:0; margin-left:6px; padding-top:0; border-top:none; flex-shrink:0; }
+    .sidebar .foot .text-xs{ display:none; }
+    .sidebar .foot button{ padding:8px 10px; font-size:10px; }
+    .topbar{ padding:10px 14px; }
+    .content{ padding:12px; }
+    .card{ padding:16px; border-radius:12px; }
+    .login-card{ padding:28px 20px 24px; }
+    table{ font-size:12px; min-width:640px; }
+    table th, table td{ white-space:nowrap; }
+    .staff-avatar{ width:44px; height:44px; }
+  }
+  .sync-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
+  .site-footer{ text-align:center; font-size:11px; color:#9aa5a1; padding:14px 20px 18px; border-top:1px solid var(--line); background:#fff; }
+  .tribute-photo{ width:150px; height:150px; border-radius:50%; object-fit:cover; border:4px solid var(--gold); }
+  .tribute-photo-ph{ width:150px; height:150px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:46px; background:var(--emerald-pale); border:4px dashed var(--gold); }
+  .marhoom-photo{ width:150px; height:190px; border-radius:14px; object-fit:cover; border:3px solid var(--gold); }
+  @media (max-width: 768px){
+    .tribute-photo, .tribute-photo-ph{ width:120px; height:120px; }
+    .marhoom-photo{ width:120px; height:152px; }
+  }

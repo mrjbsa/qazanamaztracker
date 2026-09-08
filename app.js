@@ -964,6 +964,7 @@ function driveConnect(){
     callback: (resp)=>{
       if(resp.error){ alert('Google se connect nahi ho saka: '+resp.error); return; }
       DRIVE_TOKEN = resp.access_token;
+      localStorage.setItem('qaza_drive_connected','1');
       alert('Google Drive se connect ho gaya! Isi family Gmail se sab devices connect karke ek hi record share kar sakte hain — ab se offline kiya gaya kaam, online hote hi khud-ba-khud save ho jayega.');
       driveSave(true);
       render();
@@ -992,6 +993,7 @@ function loginConnectAndLoad(){
     callback: async (resp)=>{
       if(resp.error){ setMsg('Google se connect nahi ho saka: '+resp.error, false); return; }
       DRIVE_TOKEN = resp.access_token;
+      localStorage.setItem('qaza_drive_connected','1');
       setMsg('Record dhoonda ja raha hai…', true);
       try{
         const fileId = await driveFindFileId();
@@ -1148,6 +1150,40 @@ function incPrayer(marhoomId, prayerKey, delta, btn){
 }
 
 /* ============================================================
+   SILENT DRIVE RECONNECT
+   Google's sign-in token (DRIVE_TOKEN) only lives in memory — it is
+   never saved to disk, and a fresh access token is needed on every
+   page load anyway (tokens expire after about an hour). So right
+   after connecting once, we remember that fact in localStorage, and
+   on every future visit we quietly ask Google for a new token in the
+   background (prompt:'' = no popup, uses the existing Google login
+   the browser already has) instead of showing "connect first" until
+   the user manually clicks the button again.
+   ============================================================ */
+let DRIVE_RECONNECT_TRIES = 0;
+function attemptSilentDriveReconnect(){
+  if(localStorage.getItem('qaza_drive_connected')!=='1') return;
+  const cid = GOOGLE_CLIENT_ID;
+  if(!cid) return;
+  if(typeof google==='undefined' || !google.accounts){
+    if(DRIVE_RECONNECT_TRIES++ < 20) setTimeout(attemptSilentDriveReconnect, 300);
+    return;
+  }
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: cid,
+    scope: 'https://www.googleapis.com/auth/drive.file',
+    prompt: '',
+    callback: (resp)=>{
+      if(resp.error) return; // stayed logged out of Google, or revoked access — user can tap Connect manually
+      DRIVE_TOKEN = resp.access_token;
+      driveSave(true); // push any changes made locally since the last time we were connected
+      if(SESSION) render();
+    }
+  });
+  client.requestAccessToken({prompt:''});
+}
+
+/* ============================================================
    ROOT RENDER
    ============================================================ */
 function render(){
@@ -1181,3 +1217,4 @@ function render(){
   }
 }
 render();
+attemptSilentDriveReconnect();

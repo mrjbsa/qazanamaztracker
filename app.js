@@ -30,7 +30,7 @@ const PRAYERS = [
    data private and automatically synced across every member's
    phone/computer that signs in with that same family Gmail.
    ============================================================ */
-const GOOGLE_CLIENT_ID = "";
+const GOOGLE_CLIENT_ID = "403367940462-15pbkccjmiv8muti51pnkv1hqr0bbsa4.apps.googleusercontent.com";
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }

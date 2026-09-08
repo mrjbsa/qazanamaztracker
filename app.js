@@ -977,7 +977,11 @@ async function driveFindFileId(){
   const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
     headers:{Authorization:'Bearer '+DRIVE_TOKEN}
   });
-  if(!res.ok) throw new Error('Drive se file list nahi mili.');
+  if(!res.ok){
+    let detail = res.status;
+    try{ const errJson = await res.json(); if(errJson.error && errJson.error.message) detail = `${res.status} — ${errJson.error.message}`; }catch(e){}
+    throw new Error(`Drive se file list nahi mili (${detail}).`);
+  }
   const data = await res.json();
   return (data.files && data.files[0]) ? data.files[0].id : null;
 }

@@ -1098,6 +1098,48 @@ let DRIVE_TOKEN = null;
 let DRIVE_TOKEN_CLIENT = null;
 let DRIVE_LAST_SYNC = null;
 let AUTO_SYNC_TIMER = null;
+
+/* ============================================================
+   PERSISTED ACCESS TOKEN
+   A Google access token is normally kept only in memory, so it was
+   wiped on every page reload — meaning EVERY reload needed a fresh
+   token before Drive would work again. That refresh was requested
+   "silently" (no popup), but silent refresh only succeeds if this
+   exact browser still has an active Google session for the exact
+   family Gmail — which often isn't the case on a family member's own
+   phone (their phone/Chrome is normally signed into THEIR personal
+   Gmail, not the shared family one), so the silent attempt failed
+   and they were stuck seeing "Connect" again on every visit, even
+   though nothing was actually wrong with their earlier connection.
+   Fix: remember the token itself (and when it expires — Google's
+   tokens last about an hour) in localStorage. A reload can then keep
+   using that same still-valid token immediately, with zero contact
+   with Google at all, exactly like the Owner's device does. Signing
+   out of Google in the browser later does NOT revoke an
+   already-issued token, so this keeps working across that too — the
+   token only needs to be renewed once it actually expires.
+   ============================================================ */
+const DRIVE_TOKEN_KEY = 'qaza_drive_token';
+const DRIVE_TOKEN_EXP_KEY = 'qaza_drive_token_exp';
+function persistDriveToken(token, expiresInSeconds){
+  try{
+    localStorage.setItem(DRIVE_TOKEN_KEY, token);
+    localStorage.setItem(DRIVE_TOKEN_EXP_KEY, String(Date.now() + (Number(expiresInSeconds)||3300)*1000));
+  }catch(e){}
+}
+function clearPersistedDriveToken(){
+  try{ localStorage.removeItem(DRIVE_TOKEN_KEY); localStorage.removeItem(DRIVE_TOKEN_EXP_KEY); }catch(e){}
+}
+// `minRemainingMs` lets a caller ask for a token with some safety margin
+// left on it (e.g. "at least 5 more minutes"), not just "not expired yet".
+function loadPersistedDriveToken(minRemainingMs){
+  try{
+    const token = localStorage.getItem(DRIVE_TOKEN_KEY);
+    const exp = Number(localStorage.getItem(DRIVE_TOKEN_EXP_KEY)||0);
+    if(token && exp && (exp - Date.now()) > (minRemainingMs||60000)) return {token, exp};
+  }catch(e){}
+  return null;
+}
 function scheduleAutoSync(){
   if(!DRIVE_TOKEN || !navigator.onLine) return;
   clearTimeout(AUTO_SYNC_TIMER);
@@ -1112,7 +1154,7 @@ function scheduleAutoSync(){
     });
   }, 2500);
 }
-window.addEventListener('online', ()=>{ if(DRIVE_TOKEN) driveSave(true); else if(SESSION) render(); });
+window.addEventListener('online', ()=>{ if(DRIVE_TOKEN) driveSave(true); else { attemptSilentDriveReconnect(); if(SESSION) render(); } });
 window.addEventListener('offline', ()=>{ if(SESSION) render(); });
 async function fetchGoogleEmail(token){
   try{
@@ -1139,6 +1181,7 @@ function driveConnect(){
       }
       DRIVE_TOKEN = resp.access_token;
       localStorage.setItem('qaza_drive_connected','1');
+      persistDriveToken(resp.access_token, resp.expires_in);
       if(!DB.config.driveAccountEmail && email) DB.config.driveAccountEmail = email;
       saveDB();
       // Safely merge whatever is already on this family's Drive with
@@ -1162,8 +1205,17 @@ function driveChangeAccount(){
   DB.config.driveAccountEmail = null;
   DRIVE_TOKEN = null;
   localStorage.removeItem('qaza_drive_connected');
+  clearPersistedDriveToken();
   saveDB();
   render();
+}
+// A saved/refreshed token can still turn out to be dead (expired early,
+// revoked, clock skew, etc). Rather than sit "connected" forever with a
+// token that no longer works, drop it here and let the heartbeat in
+// initDriveConnection() quietly get a fresh one on its next tick.
+function handleDriveAuthFailure(){
+  DRIVE_TOKEN = null;
+  clearPersistedDriveToken();
 }
 async function driveFindFileId(){
   const q = encodeURIComponent(`name='qaza-tracker-backup.json' and trashed=false`);
@@ -1171,6 +1223,7 @@ async function driveFindFileId(){
     headers:{Authorization:'Bearer '+DRIVE_TOKEN}
   });
   if(!res.ok){
+    if(res.status===401) handleDriveAuthFailure();
     let detail = res.status;
     try{ const errJson = await res.json(); if(errJson.error && errJson.error.message) detail = `${res.status} — ${errJson.error.message}`; }catch(e){}
     throw new Error(`Drive se file list nahi mili (${detail}).`);
@@ -1192,7 +1245,10 @@ async function driveUpload(fileId, jsonString){
     headers:{Authorization:'Bearer '+DRIVE_TOKEN, 'Content-Type':`multipart/related; boundary=${boundary}`},
     body
   });
-  if(!res.ok) throw new Error(await res.text());
+  if(!res.ok){
+    if(res.status===401) handleDriveAuthFailure();
+    throw new Error(await res.text());
+  }
   if(fileId) return fileId;
   const created = await res.json();
   return created.id;
@@ -1216,6 +1272,7 @@ function loginConnectAndLoad(){
       }
       DRIVE_TOKEN = resp.access_token;
       localStorage.setItem('qaza_drive_connected','1');
+      persistDriveToken(resp.access_token, resp.expires_in);
       setMsg('Record dhoonda ja raha hai…', true);
       const result = await driveReconcile();
       if(!result.ok){ setMsg('Family record load nahi ho saka: '+(result.reason||''), false); return; }
@@ -1244,38 +1301,54 @@ function loginConnectAndLoad(){
    locally -> and, only if the merge actually changed anything versus
    what's on Drive, push the merged result back up.
    ============================================================ */
-let DRIVE_SYNCING = false;
-async function driveReconcile(){
-  if(!DRIVE_TOKEN) return {ok:false, reason:'not-connected'};
-  if(!navigator.onLine) return {ok:false, reason:'offline'};
-  if(DRIVE_SYNCING) return {ok:false, reason:'busy'};
-  DRIVE_SYNCING = true;
-  try{
-    let fileId = await driveFindFileId();
-    let remoteText = null, remoteData = null;
-    if(fileId){
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {headers:{Authorization:'Bearer '+DRIVE_TOKEN}});
-      if(res.ok){
-        remoteText = await res.text();
-        try{ remoteData = JSON.parse(remoteText); }catch(e){ remoteData = null; }
+/* Every caller (manual buttons, silent reconnect, the periodic auto-pull,
+   the debounced auto-save) used to be turned away with reason:'busy' if a
+   reconcile was already in flight — which meant that exact update was
+   simply dropped: it was never retried automatically, so a member's very
+   first "Connect" could quietly fail to ever create/merge into the shared
+   file, and they'd see "busy" with no real recovery besides luck on the
+   next timer tick. Now every call is QUEUED behind whichever reconcile is
+   currently running (still only one network round-trip happens at a
+   time — nothing is more concurrent than before), so nobody's update is
+   ever silently discarded; it just runs a moment later. */
+let DRIVE_SYNC_QUEUE = Promise.resolve();
+function driveReconcile(){
+  const run = async () => {
+    if(!DRIVE_TOKEN) return {ok:false, reason:'not-connected'};
+    if(!navigator.onLine) return {ok:false, reason:'offline'};
+    try{
+      let fileId = await driveFindFileId();
+      let remoteText = null, remoteData = null;
+      if(fileId){
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {headers:{Authorization:'Bearer '+DRIVE_TOKEN}});
+        if(res.ok){
+          remoteText = await res.text();
+          try{ remoteData = JSON.parse(remoteText); }catch(e){ remoteData = null; }
+        } else if(res.status===401){
+          handleDriveAuthFailure();
+          return {ok:false, reason:'unauthorized'};
+        }
       }
+      const merged = remoteData ? mergeDB(DB, remoteData) : DB;
+      const mergedJSON = JSON.stringify(merged);
+      DB = merged;
+      try{ localStorage.setItem(DB_KEY, mergedJSON); }catch(e){ /* surfaced already by saveDB elsewhere */ }
+      let pushed = false;
+      if(!fileId || mergedJSON !== remoteText){
+        fileId = await driveUpload(fileId, mergedJSON);
+        pushed = true;
+      }
+      DRIVE_LAST_SYNC = new Date();
+      return {ok:true, fileId, pushed, hadRemote: !!remoteData};
+    }catch(e){
+      return {ok:false, reason:e.message};
     }
-    const merged = remoteData ? mergeDB(DB, remoteData) : DB;
-    const mergedJSON = JSON.stringify(merged);
-    DB = merged;
-    try{ localStorage.setItem(DB_KEY, mergedJSON); }catch(e){ /* surfaced already by saveDB elsewhere */ }
-    let pushed = false;
-    if(!fileId || mergedJSON !== remoteText){
-      fileId = await driveUpload(fileId, mergedJSON);
-      pushed = true;
-    }
-    DRIVE_LAST_SYNC = new Date();
-    return {ok:true, fileId, pushed, hadRemote: !!remoteData};
-  }catch(e){
-    return {ok:false, reason:e.message};
-  }finally{
-    DRIVE_SYNCING = false;
-  }
+  };
+  const result = DRIVE_SYNC_QUEUE.then(run, run);
+  // Keep the chain alive even though `run` itself never rejects, so one
+  // bad turn can never wedge every reconcile call after it.
+  DRIVE_SYNC_QUEUE = result.catch(()=>{});
+  return result;
 }
 async function driveSave(silent){
   if(!DRIVE_TOKEN){ if(!silent) alert('Pehle Google Drive se connect karein.'); return; }
@@ -1416,26 +1489,31 @@ function incPrayer(marhoomId, prayerKey, delta, btn){
    the user manually clicks the button again.
    ============================================================ */
 let DRIVE_RECONNECT_TRIES = 0;
+let DRIVE_SILENT_INFLIGHT = false;
 function attemptSilentDriveReconnect(){
   if(localStorage.getItem('qaza_drive_connected')!=='1') return;
+  if(DRIVE_SILENT_INFLIGHT) return;
   const cid = GOOGLE_CLIENT_ID;
   if(!cid) return;
   if(typeof google==='undefined' || !google.accounts){
     if(DRIVE_RECONNECT_TRIES++ < 20) setTimeout(attemptSilentDriveReconnect, 300);
     return;
   }
+  DRIVE_SILENT_INFLIGHT = true;
   const client = google.accounts.oauth2.initTokenClient({
     client_id: cid,
     scope: DRIVE_SCOPE,
     prompt: '',
     callback: async (resp)=>{
-      if(resp.error) return; // stayed logged out of Google, or revoked access — user can tap Connect manually
+      DRIVE_SILENT_INFLIGHT = false;
+      if(resp.error) return; // no active Google session for this account in this browser right now — the heartbeat below will keep quietly retrying, and/or the persisted-token fast path will cover it until it truly expires
       const lockedEmail = DB.config.driveAccountEmail;
       if(lockedEmail){
         const email = await fetchGoogleEmail(resp.access_token);
         if(email && email.toLowerCase()!==lockedEmail.toLowerCase()) return; // some other Google account is active on this device/browser — stay disconnected rather than touch the wrong Drive
       }
       DRIVE_TOKEN = resp.access_token;
+      persistDriveToken(resp.access_token, resp.expires_in);
       // Merge (not overwrite!) — this pulls in anything other members added
       // while this device was away, AND safely pushes anything this device
       // added while it was offline/disconnected. Neither side is ever lost.
@@ -1445,6 +1523,43 @@ function attemptSilentDriveReconnect(){
   });
   client.requestAccessToken({prompt:'', hint: DB.config.driveAccountEmail || ''});
 }
+
+/* ============================================================
+   DRIVE CONNECTION STARTUP + HEARTBEAT
+   Runs once when the app loads, and then keeps checking in the
+   background for as long as the tab stays open:
+     1. If a still-valid token was saved from an earlier visit, use it
+        immediately — no popup, no waiting on Google at all, so a
+        reload behaves exactly like it already had Drive open (this
+        is what makes reload/soft-restart "just work" for members the
+        same way it already did for the Owner).
+     2. Otherwise fall back to the quiet Google sign-in check (works
+        when the browser has an active session for the family Gmail).
+     3. Every 45 seconds afterwards: if still not connected, try again
+        (covers a slow network or GIS script at first load, or the
+        correct Google session becoming available a bit later); if
+        connected but the token is due to expire soon, renew it
+        BEFORE it dies, so an open tab never has to fall back to
+        asking the person to reconnect at all.
+   ============================================================ */
+function initDriveConnection(){
+  const saved = loadPersistedDriveToken();
+  if(saved){
+    DRIVE_TOKEN = saved.token;
+    driveReconcile().then(result=>{ if(result.ok && SESSION) render(); });
+  } else {
+    attemptSilentDriveReconnect();
+  }
+  setInterval(()=>{
+    if(localStorage.getItem('qaza_drive_connected')!=='1') return;
+    if(!DRIVE_TOKEN){ attemptSilentDriveReconnect(); return; }
+    const stillFresh = loadPersistedDriveToken(300000); // renew once under 5 minutes remain
+    if(!stillFresh) attemptSilentDriveReconnect();
+  }, 45000);
+}
+window.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='visible' && !DRIVE_TOKEN) attemptSilentDriveReconnect();
+});
 
 /* ============================================================
    AUTO-PULL FROM DRIVE
@@ -1507,4 +1622,4 @@ function render(){
   }
 }
 render();
-attemptSilentDriveReconnect();
+initDriveConnection();

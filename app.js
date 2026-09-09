@@ -31,6 +31,10 @@ const PRAYERS = [
    phone/computer that signs in with that same family Gmail.
    ============================================================ */
 const GOOGLE_CLIENT_ID = "403367940462-15pbkccjmiv8muti51pnkv1hqr0bbsa4.apps.googleusercontent.com";
+// drive.file = only files this app itself creates (nothing else in the user's Drive).
+// userinfo.email = lets us read back *which* Gmail just signed in, so we can enforce
+// that only the one family Gmail is ever allowed to connect on a given device.
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email';
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -202,7 +206,8 @@ function defaultDB(){
       ownerAccount:null,   // {name,password,photo} set on first run
       anniversaryFormat:'gregorian',  // 'gregorian' or 'hijri' — which calendar the Barsi alert fires on
       hijriCountry:'PK',      // which country's moon-sighting convention to approximate (default Pakistan)
-      hijriAdjustDays:-1      // day-offset applied to the Umm al-Qura calendar for that country
+      hijriAdjustDays:-1,     // day-offset applied to the Umm al-Qura calendar for that country
+      driveAccountEmail:null  // once set, only this Gmail may connect Google Drive for this family
     },
     marhooms:[],   // {id,name,relation,gender,dob(Gregorian),dod(Gregorian),dodHijri,photo,targets:{fajr,zuhr,asr,maghrib,isha}}
     members:[],    // {id,name,relation,password,photo}
@@ -910,6 +915,7 @@ function renderAbout(){
 
 /* ---------- Backup ---------- */
 function driveSyncCard(){
+  const lockedEmail = DB.config.driveAccountEmail;
   return card(`
     <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">☁️ Google Drive Sync</h2>
     <p class="text-sm text-gray-600 mb-3">Is family ka poora record — Marhoom, Members aur Progress — <b>ek hi Google Drive account</b> mein automatically save/update hota hai. Owner aur har Member, jab bhi apne phone ya computer par yahan "Connect" dabayein, unhein <b>isi ek family Gmail account</b> se sign-in karna hoga (jo Owner ne family ke liye muqarrar kiya hai) — is tarah sab ka kaam khud-ba-khud usi ek Drive mein jama hota rahega, chahe kisi ka bhi device ho. Asal Gmail password kabhi is app mein type nahi hota — Google ka apna, mehfooz sign-in page khulta hai.</p>
@@ -922,8 +928,10 @@ function driveSyncCard(){
     <div class="text-xs mt-3 space-y-1">
       <div><span class="sync-dot" style="background:${navigator.onLine?'#1a9d5c':'#b3403a'}"></span>${navigator.onLine?'Online':'Offline — is device par save ho raha hai, internet aate hi khud sync ho jayega'}</div>
       <div style="color:${DRIVE_TOKEN?'var(--emerald)':'#9ca3af'}">${DRIVE_TOKEN?'✅ Is session mein Google Drive se connected hain.':'Abhi connect nahi — connect karne tak data sirf isi device par mehfooz hai.'}</div>
+      ${lockedEmail?`<div class="text-gray-500">🔒 Is family ki Drive sirf <b>${esc(lockedEmail)}</b> account par fix hai — koi bhi doosra Gmail is se connect nahi ho sakta, chahe logout/reload ho jae.</div>`:''}
       ${DRIVE_LAST_SYNC?`<div class="text-gray-400">Last synced: ${DRIVE_LAST_SYNC.toLocaleString()}</div>`:''}
     </div>
+    ${(lockedEmail && SESSION && SESSION.role==='owner') ? `<div class="mt-3"><button onclick="driveChangeAccount()" class="text-xs text-red-600 underline">Drive account badlein (sirf Owner)</button></div>` : ''}
   `);
 }
 function oBackup(){
@@ -954,23 +962,46 @@ function scheduleAutoSync(){
 }
 window.addEventListener('online', ()=>{ if(DRIVE_TOKEN) driveSave(true); else if(SESSION) render(); });
 window.addEventListener('offline', ()=>{ if(SESSION) render(); });
+async function fetchGoogleEmail(token){
+  try{
+    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {headers:{Authorization:'Bearer '+token}});
+    if(!res.ok) return null;
+    const data = await res.json();
+    return data.email || null;
+  }catch(e){ return null; }
+}
 function driveConnect(){
   const cid = GOOGLE_CLIENT_ID;
   if(!cid){ alert('Google Drive sync abhi is website ke liye taiyar nahi — website chalane wale se rabta karein.'); return; }
   if(typeof google==='undefined' || !google.accounts){ alert('Google sign-in load nahi ho saka. Internet connection check karein aur yaqeeni banayein ke ye app kisi https:// address par host hai (local file:// par kaam nahi karti).'); return; }
   DRIVE_TOKEN_CLIENT = google.accounts.oauth2.initTokenClient({
     client_id: cid,
-    scope: 'https://www.googleapis.com/auth/drive.file',
-    callback: (resp)=>{
+    scope: DRIVE_SCOPE,
+    callback: async (resp)=>{
       if(resp.error){ alert('Google se connect nahi ho saka: '+resp.error); return; }
+      const email = await fetchGoogleEmail(resp.access_token);
+      const lockedEmail = DB.config.driveAccountEmail;
+      if(lockedEmail && email && email.toLowerCase()!==lockedEmail.toLowerCase()){
+        alert(`Ye family ki Google Drive sirf "${lockedEmail}" account par fix hai. Aap ne "${email}" se sign-in kiya, jo match nahi karta — is liye connect nahi kiya gaya. Sahi family Gmail account se dobara try karein (ya Owner "Drive account badlein" wala option use kare).`);
+        return;
+      }
       DRIVE_TOKEN = resp.access_token;
       localStorage.setItem('qaza_drive_connected','1');
+      if(!lockedEmail && email){ DB.config.driveAccountEmail = email; saveDB(); }
       alert('Google Drive se connect ho gaya! Isi family Gmail se sab devices connect karke ek hi record share kar sakte hain — ab se offline kiya gaya kaam, online hote hi khud-ba-khud save ho jayega.');
       driveSave(true);
       render();
     }
   });
-  DRIVE_TOKEN_CLIENT.requestAccessToken();
+  DRIVE_TOKEN_CLIENT.requestAccessToken({hint: DB.config.driveAccountEmail || ''});
+}
+function driveChangeAccount(){
+  if(!confirm('Kya aap waqai family ki Google Drive account badalna chahte hain?\n\nIs ke baad har device par dobara "Connect" karke sahi (naye) Gmail account se sign-in karna hoga.')) return;
+  DB.config.driveAccountEmail = null;
+  DRIVE_TOKEN = null;
+  localStorage.removeItem('qaza_drive_connected');
+  saveDB();
+  render();
 }
 async function driveFindFileId(){
   const q = encodeURIComponent(`name='qaza-tracker-backup.json' and trashed=false`);
@@ -993,9 +1024,15 @@ function loginConnectAndLoad(){
   if(typeof google==='undefined' || !google.accounts){ setMsg('Google sign-in load nahi ho saka — internet check karein aur yaqeeni banayein ye app https:// par host hai.', false); return; }
   const client = google.accounts.oauth2.initTokenClient({
     client_id: cid,
-    scope: 'https://www.googleapis.com/auth/drive.file',
+    scope: DRIVE_SCOPE,
     callback: async (resp)=>{
       if(resp.error){ setMsg('Google se connect nahi ho saka: '+resp.error, false); return; }
+      const email = await fetchGoogleEmail(resp.access_token);
+      const lockedEmail = DB.config.driveAccountEmail;
+      if(lockedEmail && email && email.toLowerCase()!==lockedEmail.toLowerCase()){
+        setMsg(`Ye device pehle se "${lockedEmail}" family account ke saath set hai. "${email}" se record load nahi kiya ja sakta — sahi family Gmail se try karein.`, false);
+        return;
+      }
       DRIVE_TOKEN = resp.access_token;
       localStorage.setItem('qaza_drive_connected','1');
       setMsg('Record dhoonda ja raha hai…', true);
@@ -1009,13 +1046,15 @@ function loginConnectAndLoad(){
         if(!res.ok) throw new Error('File download nahi ho saki.');
         const data = await res.json();
         DB = Object.assign(defaultDB(), data, {config:Object.assign(defaultDB().config, data.config||{})});
+        if(!DB.config.driveAccountEmail && email) DB.config.driveAccountEmail = email; // backfill for records saved before this lock existed
+        LAST_KNOWN_DRIVE_JSON = JSON.stringify(DB);
         saveDB();
         alert('✅ Family ka record mil gaya! Ab apna naam/role chun kar apne password se Log In karein.');
         render();
       }catch(e){ setMsg('Family record load nahi ho saka: '+e.message, false); }
     }
   });
-  client.requestAccessToken();
+  client.requestAccessToken({hint: DB.config.driveAccountEmail || ''});
 }
 async function driveSave(silent){
   if(!DRIVE_TOKEN){ if(!silent) alert('Pehle Google Drive se connect karein.'); return; }
@@ -1037,6 +1076,7 @@ async function driveSave(silent){
     });
     if(!res.ok) throw new Error(await res.text());
     DRIVE_LAST_SYNC = new Date();
+    LAST_KNOWN_DRIVE_JSON = JSON.stringify(DB);
     if(!silent) alert('✅ Family ka poora record Google Drive par save ho gaya.');
     if(SESSION && ACTIVE_TAB==='backup') render();
   }catch(e){ if(!silent) alert('Drive par save nahi ho saka: '+e.message); }
@@ -1051,6 +1091,7 @@ async function driveLoad(){
     const data = await res.json();
     if(!confirm('Drive ki backup se is device ka data replace kar dein?')) return;
     DB = Object.assign(defaultDB(), data, {config:Object.assign(defaultDB().config, data.config||{})});
+    LAST_KNOWN_DRIVE_JSON = JSON.stringify(DB);
     saveDB(); alert('Drive se record load ho gaya.'); render();
   }catch(e){ alert('Drive se load nahi ho saka: '+e.message); }
 }
@@ -1175,17 +1216,61 @@ function attemptSilentDriveReconnect(){
   }
   const client = google.accounts.oauth2.initTokenClient({
     client_id: cid,
-    scope: 'https://www.googleapis.com/auth/drive.file',
+    scope: DRIVE_SCOPE,
     prompt: '',
-    callback: (resp)=>{
+    callback: async (resp)=>{
       if(resp.error) return; // stayed logged out of Google, or revoked access — user can tap Connect manually
+      const lockedEmail = DB.config.driveAccountEmail;
+      if(lockedEmail){
+        const email = await fetchGoogleEmail(resp.access_token);
+        if(email && email.toLowerCase()!==lockedEmail.toLowerCase()) return; // some other Google account is active on this device/browser — stay disconnected rather than touch the wrong Drive
+      }
       DRIVE_TOKEN = resp.access_token;
       driveSave(true); // push any changes made locally since the last time we were connected
       if(SESSION) render();
     }
   });
-  client.requestAccessToken({prompt:''});
+  client.requestAccessToken({prompt:'', hint: DB.config.driveAccountEmail || ''});
 }
+
+/* ============================================================
+   AUTO-PULL FROM DRIVE
+   Without this, a change made on one member's device would only ever
+   reach another member's device if someone manually clicked
+   "Load Latest" — everything else (auto-save, silent reconnect) only
+   ever PUSHES this device's own data outward, it never pulls anyone
+   else's. This quietly checks Drive every so often (and whenever the
+   tab regains focus, or the internet comes back) and, if something
+   changed, pulls it in automatically — so every family member's
+   device stays up to date with everyone else's without them having
+   to do anything.
+   A local edit that's still waiting to be pushed (AUTO_SYNC_TIMER
+   pending) is never overwritten by an incoming pull — that edit gets
+   pushed first, then the next pull cycle simply confirms Drive
+   already matches.
+   ============================================================ */
+let LAST_KNOWN_DRIVE_JSON = null;
+async function driveAutoPull(){
+  if(!DRIVE_TOKEN || !navigator.onLine || !SESSION) return;
+  if(AUTO_SYNC_TIMER) return; // a local change is about to be pushed — don't race it
+  try{
+    const fileId = await driveFindFileId();
+    if(!fileId) return;
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {headers:{Authorization:'Bearer '+DRIVE_TOKEN}});
+    if(!res.ok) return;
+    const text = await res.text();
+    if(text === LAST_KNOWN_DRIVE_JSON) return; // nothing new since last time we checked
+    const data = JSON.parse(text);
+    DB = Object.assign(defaultDB(), data, {config:Object.assign(defaultDB().config, data.config||{})});
+    LAST_KNOWN_DRIVE_JSON = text;
+    localStorage.setItem(DB_KEY, JSON.stringify(DB)); // update this device's copy without re-triggering a push
+    DRIVE_LAST_SYNC = new Date();
+    render();
+  }catch(e){ /* silent — next cycle will try again */ }
+}
+setInterval(driveAutoPull, 20000); // check every 20 seconds while the app is open
+window.addEventListener('focus', driveAutoPull); // and the moment someone switches back to this tab
+window.addEventListener('online', driveAutoPull);
 
 /* ============================================================
    ROOT RENDER

@@ -209,10 +209,19 @@ function defaultDB(){
       hijriAdjustDays:-1,     // day-offset applied to the Umm al-Qura calendar for that country
       driveAccountEmail:null  // once set, only this Gmail may connect Google Drive for this family
     },
-    marhooms:[],   // {id,name,relation,gender,dob(Gregorian),dod(Gregorian),dodHijri,photo,targets:{fajr,zuhr,asr,maghrib,isha}}
-    members:[],    // {id,name,relation,password,photo}
+    marhooms:[],   // {id,name,relation,gender,dob(Gregorian),dod(Gregorian),dodHijri,photo,targets:{fajr,zuhr,asr,maghrib,isha},updatedAt}
+    members:[],    // {id,name,relation,password,photo,updatedAt}
     progress:{},   // marhoomId -> actorId('owner' or memberId) -> {fajr,zuhr,asr,maghrib,isha}
-    activity:[]    // [{id,ts,marhoomId,memberId,prayer,delta}] most recent first, capped at 300
+    activity:[],   // [{id,ts,marhoomId,memberId,prayer,delta}] most recent first, capped at 300
+    // Tombstones remember WHAT was deleted and WHEN, so that merging this
+    // device's data with another device's (possibly older/stale) copy of
+    // the family record can never accidentally "resurrect" something that
+    // was deliberately removed — see mergeDB() below.
+    tombstones:{ marhooms:[], members:[] },
+    // meta.savedAt is stamped on every local change (see saveDB) and is
+    // what mergeDB() and the Drive sync logic use to reconcile two copies
+    // of the record without ever silently throwing away newer data.
+    meta:{ savedAt:0 }
   };
 }
 let DB = loadDB();
@@ -222,10 +231,143 @@ function loadDB(){
     if(!raw) return defaultDB();
     const parsed = JSON.parse(raw);
     const d = defaultDB();
-    return Object.assign(d, parsed, {config:Object.assign(d.config, parsed.config||{})});
+    return Object.assign(d, parsed, {
+      config: Object.assign(d.config, parsed.config||{}),
+      tombstones: Object.assign(d.tombstones, parsed.tombstones||{}),
+      meta: Object.assign(d.meta, parsed.meta||{})
+    });
   }catch(e){ return defaultDB(); }
 }
-function saveDB(){ localStorage.setItem(DB_KEY, JSON.stringify(DB)); scheduleAutoSync(); }
+function saveDB(){
+  DB.meta.savedAt = Date.now();
+  try{
+    localStorage.setItem(DB_KEY, JSON.stringify(DB));
+  }catch(e){
+    // Most common cause: a full-resolution camera photo pushed this
+    // device's storage over its quota. We still keep going (the data
+    // stays correct in memory for this session) but we tell the user
+    // plainly, because silently failing here is exactly what used to
+    // make a newly-added Marhoom "disappear" after a reload.
+    console.error('localStorage save failed', e);
+    alert('⚠️ Is device ki local storage bhar chuki hai, is liye yeh tabdeeli save nahi ho saki. Tasveer ka size chhota karein ya Settings > Local File Backup se purana backup safely download kar ke local storage khali karein, phir dobara try karein.');
+  }
+  scheduleAutoSync();
+}
+
+/* ============================================================
+   MERGE — combines two copies of the family record (this device's
+   and Google Drive's) into one, WITHOUT ever losing data:
+     - marhooms/members: kept from both sides; if the same person was
+       edited on both sides, the more-recently-edited version wins.
+     - a deletion always wins over a stale copy that doesn't know about
+       it yet (tombstones), but never over an edit made AFTER the delete.
+     - prayer counts: the higher count wins per prayer, so a sync can
+       never make someone's completed prayers go backwards.
+     - activity log: combined and de-duplicated by id.
+   This is what lets every family member's device push its own updates
+   and pull everyone else's without anyone ever needing to "resolve a
+   conflict" by hand, and without a stale device ever overwriting newer
+   work from someone else.
+   ============================================================ */
+function mergeTombstones(listA, listB){
+  const map = new Map();
+  [...(listA||[]), ...(listB||[])].forEach(t=>{
+    if(!t || !t.id) return;
+    const existing = map.get(t.id);
+    if(!existing || (t.deletedAt||0) > (existing.deletedAt||0)) map.set(t.id, t);
+  });
+  return Array.from(map.values()).sort((x,y)=>(y.deletedAt||0)-(x.deletedAt||0)).slice(0,500);
+}
+function mergeById(listA, listB, tombstones){
+  const map = new Map();
+  (listB||[]).forEach(item=>{ if(item && item.id) map.set(item.id, item); });
+  (listA||[]).forEach(item=>{
+    if(!item || !item.id) return;
+    const existing = map.get(item.id);
+    if(!existing){ map.set(item.id, item); return; }
+    const ta = item.updatedAt||0, tb = existing.updatedAt||0;
+    map.set(item.id, ta>=tb ? item : existing);
+  });
+  const tomb = new Map((tombstones||[]).map(t=>[t.id, t.deletedAt||0]));
+  return Array.from(map.values()).filter(item=> !(tomb.has(item.id) && tomb.get(item.id) >= (item.updatedAt||0)));
+}
+function mergeDB(a, b){
+  a = a || defaultDB(); b = b || defaultDB();
+  const out = defaultDB();
+  const aTs = (a.meta&&a.meta.savedAt)||0, bTs = (b.meta&&b.meta.savedAt)||0;
+  const newer = aTs>=bTs ? a : b, older = newer===a ? b : a;
+
+  out.config = Object.assign({}, defaultDB().config, newer.config||{});
+  // Safety net: never let a merge un-set an already-created Owner account
+  // or an already-locked family Drive email just because the "newer" side
+  // happens to be a device that hasn't set those up yet.
+  if(!out.config.ownerAccount) out.config.ownerAccount = (older.config&&older.config.ownerAccount) || null;
+  if(!out.config.driveAccountEmail) out.config.driveAccountEmail = (older.config&&older.config.driveAccountEmail) || null;
+
+  out.tombstones = {
+    marhooms: mergeTombstones((a.tombstones&&a.tombstones.marhooms)||[], (b.tombstones&&b.tombstones.marhooms)||[]),
+    members: mergeTombstones((a.tombstones&&a.tombstones.members)||[], (b.tombstones&&b.tombstones.members)||[])
+  };
+  out.marhooms = mergeById(a.marhooms||[], b.marhooms||[], out.tombstones.marhooms);
+  out.members  = mergeById(a.members||[], b.members||[], out.tombstones.members);
+
+  const liveMarhoomIds = new Set(out.marhooms.map(m=>m.id));
+  out.progress = {};
+  const marhoomIds = new Set([...Object.keys(a.progress||{}), ...Object.keys(b.progress||{})]);
+  marhoomIds.forEach(mid=>{
+    if(!liveMarhoomIds.has(mid)) return; // don't resurrect progress for a deleted Marhoom
+    const pa=(a.progress||{})[mid]||{}, pb=(b.progress||{})[mid]||{};
+    const actorIds = new Set([...Object.keys(pa), ...Object.keys(pb)]);
+    out.progress[mid] = {};
+    actorIds.forEach(aid=>{
+      const ca=pa[aid]||{}, cb=pb[aid]||{}; const rec={};
+      PRAYERS.forEach(p=>{ rec[p.key] = Math.max(Number(ca[p.key])||0, Number(cb[p.key])||0); });
+      out.progress[mid][aid] = rec;
+    });
+  });
+
+  const actMap = new Map();
+  [...(b.activity||[]), ...(a.activity||[])].forEach(act=>{ if(act && act.id && liveMarhoomIds.has(act.marhoomId)) actMap.set(act.id, act); });
+  out.activity = Array.from(actMap.values()).sort((x,y)=>y.ts-x.ts).slice(0,300);
+
+  out.meta = { savedAt: Math.max(aTs, bTs) };
+  return out;
+}
+
+/* ---------- Photo compression ----------
+   Phone camera photos are often 3-8 MB each. Storing that as base64 in
+   localStorage (which typically has only ~5-10 MB of room total, shared
+   by the ENTIRE app) fills it up after just one or two photos, and every
+   save after that silently fails — which is exactly what caused newly
+   added Marhoom/Member records to vanish after a reload. This shrinks
+   every photo to a small, sharp-enough JPEG before it's ever stored. */
+function compressImage(file, maxDim, quality){
+  maxDim = maxDim || 480; quality = quality==null ? 0.72 : quality;
+  return new Promise((resolve, reject)=>{
+    if(!file){ resolve(null); return; }
+    const reader = new FileReader();
+    reader.onerror = ()=>reject(new Error('Tasveer parhi nahi ja saki.'));
+    reader.onload = (e)=>{
+      const img = new Image();
+      img.onerror = ()=>resolve(e.target.result); // fall back to the original rather than losing the photo
+      img.onload = ()=>{
+        try{
+          let width = img.naturalWidth, height = img.naturalHeight;
+          if(width > maxDim || height > maxDim){
+            if(width >= height){ height = Math.round(height*(maxDim/width)); width = maxDim; }
+            else { width = Math.round(width*(maxDim/height)); height = maxDim; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        }catch(err){ resolve(e.target.result); }
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 /* ---------------------------- SESSION ---------------------------- */
 let SESSION = JSON.parse(sessionStorage.getItem('qaza_session')||'null');
@@ -502,21 +644,22 @@ function nudgeHijriAdjust(delta){
   saveDB();
   render();
 }
-function saveFamilySetup(){
+async function saveFamilySetup(){
   DB.config.familyName = document.getElementById('cfgFamilyName').value.trim() || DB.config.familyName;
   const logoInput = document.getElementById('cfgLogo');
-  const finish=()=>{ saveDB(); const m=document.getElementById('setupMsg'); m.classList.remove('hidden'); setTimeout(()=>render(),800); };
-  if(logoInput.files && logoInput.files[0]){
-    const reader = new FileReader();
-    reader.onload = e=>{ DB.config.logo = e.target.result; finish(); };
-    reader.readAsDataURL(logoInput.files[0]);
-  } else finish();
+  try{
+    if(logoInput.files && logoInput.files[0]) DB.config.logo = await compressImage(logoInput.files[0], 300, 0.8);
+  }catch(e){ alert('Logo save nahi ho saka: '+e.message); }
+  saveDB();
+  const m=document.getElementById('setupMsg'); if(m) m.classList.remove('hidden');
+  setTimeout(()=>render(),800);
 }
-function saveOwnerPhoto(input){
+async function saveOwnerPhoto(input){
   if(!input.files || !input.files[0]) return;
-  const reader = new FileReader();
-  reader.onload = e=>{ DB.config.ownerAccount.photo = e.target.result; saveDB(); render(); };
-  reader.readAsDataURL(input.files[0]);
+  try{
+    DB.config.ownerAccount.photo = await compressImage(input.files[0], 400, 0.72);
+    saveDB(); render();
+  }catch(e){ alert('Tasveer save nahi ho saki: '+e.message); }
 }
 function changeOwnerName(){
   const name = document.getElementById('ownNewName_').value.trim();
@@ -620,7 +763,7 @@ function fillTargetsFromDays(){
 }
 function startEditMarhoom(id){ EDITING_MARHOOM_ID=id; render(); setTimeout(()=>document.getElementById('mName')?.scrollIntoView({behavior:'smooth'}),0); }
 function cancelEditMarhoom(){ EDITING_MARHOOM_ID=null; render(); }
-function saveMarhoomForm(){
+async function saveMarhoomForm(){
   const name = document.getElementById('mName').value.trim();
   const relation = document.getElementById('mRelation').value.trim();
   const gender = document.getElementById('mGender').value;
@@ -630,27 +773,26 @@ function saveMarhoomForm(){
   const targets = {}; PRAYERS.forEach(p=>{ targets[p.key] = Number(document.getElementById('mTarget_'+p.key).value)||0; });
   if(!name){ alert('Please enter the Marhoom\u2019s name.'); return; }
   const dodHijri = dod ? toHijri(dod) : '';
-  const finish=(photo)=>{
-    if(EDITING_MARHOOM_ID){
-      const m = DB.marhooms.find(x=>x.id===EDITING_MARHOOM_ID);
-      if(m) Object.assign(m, {name,relation,gender,dob,dod,dodHijri,targets, photo: photo||m.photo});
-      EDITING_MARHOOM_ID = null;
-    } else {
-      DB.marhooms.push({id:uid(), name, relation, gender, dob, dod, dodHijri, photo:photo||null, targets});
-    }
-    saveDB(); render();
-  };
-  if(photoInput.files && photoInput.files[0]){
-    const reader = new FileReader();
-    reader.onload = e=>finish(e.target.result);
-    reader.readAsDataURL(photoInput.files[0]);
-  } else finish(null);
+  let photo = null;
+  try{
+    if(photoInput.files && photoInput.files[0]) photo = await compressImage(photoInput.files[0], 480, 0.72);
+  }catch(e){ alert('Tasveer process nahi ho saki — baghair tasveer badle save kar rahe hain.'); }
+  const now = Date.now();
+  if(EDITING_MARHOOM_ID){
+    const m = DB.marhooms.find(x=>x.id===EDITING_MARHOOM_ID);
+    if(m) Object.assign(m, {name,relation,gender,dob,dod,dodHijri,targets, photo: photo||m.photo, updatedAt: now});
+    EDITING_MARHOOM_ID = null;
+  } else {
+    DB.marhooms.push({id:uid(), name, relation, gender, dob, dod, dodHijri, photo:photo||null, targets, updatedAt: now});
+  }
+  saveDB(); render();
 }
 function delMarhoom(id){
   if(confirm('Remove this Marhoom and all their Qaza progress records? This cannot be undone.')){
     DB.marhooms = DB.marhooms.filter(m=>m.id!==id);
     delete DB.progress[id];
     DB.activity = DB.activity.filter(a=>a.marhoomId!==id);
+    DB.tombstones.marhooms.push({id, deletedAt: Date.now()});
     if(EDITING_MARHOOM_ID===id) EDITING_MARHOOM_ID=null;
     saveDB(); render();
   }
@@ -688,23 +830,24 @@ function oMembers(){
     </div>
   `)}`;
 }
-function addMember(){
+async function addMember(){
   const name = document.getElementById('memName').value.trim();
   const relation = document.getElementById('memRelation').value.trim();
   const password = document.getElementById('memPassword').value.trim();
   const photoInput = document.getElementById('memPhoto');
   if(!name){ alert('Please enter the member\u2019s name.'); return; }
   if(!password){ alert('Please set a login password for this member.'); return; }
-  const finish=(photo)=>{ DB.members.push({id:uid(), name, relation, password, photo:photo||null}); saveDB(); render(); };
-  if(photoInput.files && photoInput.files[0]){
-    const reader = new FileReader();
-    reader.onload = e=>finish(e.target.result);
-    reader.readAsDataURL(photoInput.files[0]);
-  } else finish(null);
+  let photo = null;
+  try{
+    if(photoInput.files && photoInput.files[0]) photo = await compressImage(photoInput.files[0], 400, 0.72);
+  }catch(e){ alert('Tasveer process nahi ho saki — baghair tasveer ke save kar rahe hain.'); }
+  DB.members.push({id:uid(), name, relation, password, photo:photo||null, updatedAt: Date.now()});
+  saveDB(); render();
 }
 function delMember(id){
   if(confirm('Remove this family member? Their logged Qaza contributions stay in the family totals.')){
     DB.members = DB.members.filter(m=>m.id!==id);
+    DB.tombstones.members.push({id, deletedAt: Date.now()});
     saveDB(); render();
   }
 }
@@ -713,7 +856,7 @@ function resetMemberPass(id){
   const np = prompt(`Set a new login password for ${mem.name}:`, '');
   if(np===null) return;
   if(!np.trim()){ alert('Password cannot be empty.'); return; }
-  mem.password = np.trim(); saveDB(); render();
+  mem.password = np.trim(); mem.updatedAt = Date.now(); saveDB(); render();
   alert('Password updated.');
 }
 
@@ -918,8 +1061,8 @@ function driveSyncCard(){
   const lockedEmail = DB.config.driveAccountEmail;
   return card(`
     <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">☁️ Google Drive Sync</h2>
-    <p class="text-sm text-gray-600 mb-3">Is family ka poora record — Marhoom, Members aur Progress — <b>ek hi Google Drive account</b> mein automatically save/update hota hai. Owner aur har Member, jab bhi apne phone ya computer par yahan "Connect" dabayein, unhein <b>isi ek family Gmail account</b> se sign-in karna hoga (jo Owner ne family ke liye muqarrar kiya hai) — is tarah sab ka kaam khud-ba-khud usi ek Drive mein jama hota rahega, chahe kisi ka bhi device ho. Asal Gmail password kabhi is app mein type nahi hota — Google ka apna, mehfooz sign-in page khulta hai.</p>
-    <p class="text-xs text-gray-400 mb-3">Har family sirf apna khud ka family Gmail account istemal karti hai — kisi bhi tarah ki extra setup ki zaroorat nahi.</p>
+    <p class="text-sm text-gray-600 mb-3">Is family ka poora record — Marhoom, Members aur Progress — <b>ek hi Google Drive account/file</b> mein automatically save/update hota hai. Ek baar "Connect" kar lene ke baad, is device par dobara connect karne ki zaroorat nahi — jab bhi is Gmail se browser sign-in maujood ho, app khamoshi se khud reconnect ho jaati hai. Har ~12 second mein, aur jab bhi ye tab dobara khola jaaye ya internet wapas aaye, app khud Drive check karti hai; kisi bhi member ka naya data turant sab ke devices par pahunch jaata hai. Sync hamesha "merge" karke hoti hai — yani agar do log ek hi waqt mein alag alag device par kuch add karein, to dono ka data mehfooz rehta hai, koi bhi cheez overwrite ho kar zaya nahi hoti.</p>
+    <p class="text-xs text-gray-400 mb-3">Har family sirf apna khud ka family Gmail account istemal karti hai — kisi bhi tarah ki extra setup ki zaroorat nahi. Asal Gmail password kabhi is app mein type nahi hota — Google ka apna, mehfooz sign-in page khulta hai.</p>
     <div class="flex flex-wrap gap-3">
       <button onclick="driveConnect()" class="gold-btn rounded-lg px-5 py-2 font-bold">🔗 Connect Google Drive</button>
       <button onclick="driveSave()" class="emerald-btn rounded-lg px-5 py-2 font-bold">☁️ Save Now</button>
@@ -958,7 +1101,16 @@ let AUTO_SYNC_TIMER = null;
 function scheduleAutoSync(){
   if(!DRIVE_TOKEN || !navigator.onLine) return;
   clearTimeout(AUTO_SYNC_TIMER);
-  AUTO_SYNC_TIMER = setTimeout(()=>{ driveSave(true); }, 2500);
+  AUTO_SYNC_TIMER = setTimeout(()=>{
+    AUTO_SYNC_TIMER = null; // IMPORTANT: must be cleared once it fires, or driveAutoPull()
+                             // below would see it as "still pending" forever after the very
+                             // first edit ever made on this device, and would stop pulling in
+                             // everyone else's updates for the rest of time.
+    const before = JSON.stringify(DB);
+    driveReconcile().then(result=>{
+      if(result.ok && JSON.stringify(DB)!==before && SESSION) render();
+    });
+  }, 2500);
 }
 window.addEventListener('online', ()=>{ if(DRIVE_TOKEN) driveSave(true); else if(SESSION) render(); });
 window.addEventListener('offline', ()=>{ if(SESSION) render(); });
@@ -987,32 +1139,20 @@ function driveConnect(){
       }
       DRIVE_TOKEN = resp.access_token;
       localStorage.setItem('qaza_drive_connected','1');
-      try{
-        // Always check whether this Drive already holds the family's shared
-        // record FIRST, and if so, adopt it — this is what lets a Member's
-        // device pick up every Marhoom/member the Owner already added,
-        // instead of this device's own (often empty) local copy silently
-        // overwriting the real shared data.
-        const fileId = await driveFindFileId();
-        if(fileId){
-          const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {headers:{Authorization:'Bearer '+DRIVE_TOKEN}});
-          if(res.ok){
-            const data = await res.json();
-            DB = Object.assign(defaultDB(), data, {config:Object.assign(defaultDB().config, data.config||{})});
-          }
-        }
-        if(!DB.config.driveAccountEmail && email) DB.config.driveAccountEmail = email;
-        LAST_KNOWN_DRIVE_JSON = JSON.stringify(DB);
-        saveDB();
-        alert(fileId
-          ? '✅ Google Drive se connect ho gaya aur family ka poora record (Marhoom, Members, Progress) mil gaya!'
+      if(!DB.config.driveAccountEmail && email) DB.config.driveAccountEmail = email;
+      saveDB();
+      // Safely merge whatever is already on this family's Drive with
+      // whatever this device already has locally — nothing on either
+      // side is lost, no matter which one is "older".
+      const result = await driveReconcile();
+      if(result.ok){
+        alert(result.hadRemote
+          ? '✅ Google Drive se connect ho gaya! Family ka poora maujooda record (Marhoom, Members, Progress) is device ke record ke saath surakshit tareeqe se mila diya gaya hai — kisi ka bhi data zaya nahi hua.'
           : 'Google Drive se connect ho gaya! Ye is family ki pehli backup hai — is device ka maujooda record ab yahan se save hota rahega, aur har doosra device isi Gmail se connect karke yahi record turant paa lega.');
-        if(!fileId) driveSave(true); // very first connect for this family — create the shared file
-        render();
-      }catch(e){
-        alert('Connect ho gaya, lekin record check karte waqt masla aaya: '+e.message);
-        render();
+      } else {
+        alert('Connect ho gaya, lekin record sync karte waqt masla aaya: '+(result.reason||'')+'\nThodi dair mein khud-ba-khud dobara koshish hogi.');
       }
+      render();
     }
   });
   DRIVE_TOKEN_CLIENT.requestAccessToken({hint: DB.config.driveAccountEmail || ''});
@@ -1038,6 +1178,25 @@ async function driveFindFileId(){
   const data = await res.json();
   return (data.files && data.files[0]) ? data.files[0].id : null;
 }
+async function driveUpload(fileId, jsonString){
+  const boundary='qazaboundary';
+  const metaPart = fileId ? '{}' : JSON.stringify({name:'qaza-tracker-backup.json', mimeType:'application/json'});
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaPart}\r\n`+
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${jsonString}\r\n--${boundary}--`;
+  const url = fileId
+    ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
+    : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+  const res = await fetch(url, {
+    method: fileId?'PATCH':'POST',
+    headers:{Authorization:'Bearer '+DRIVE_TOKEN, 'Content-Type':`multipart/related; boundary=${boundary}`},
+    body
+  });
+  if(!res.ok) throw new Error(await res.text());
+  if(fileId) return fileId;
+  const created = await res.json();
+  return created.id;
+}
 function loginConnectAndLoad(){
   const cid = GOOGLE_CLIENT_ID;
   const msg = document.getElementById('loginDriveMsg');
@@ -1058,64 +1217,86 @@ function loginConnectAndLoad(){
       DRIVE_TOKEN = resp.access_token;
       localStorage.setItem('qaza_drive_connected','1');
       setMsg('Record dhoonda ja raha hai…', true);
-      try{
-        const fileId = await driveFindFileId();
-        if(!fileId){
-          setMsg('Is Gmail par abhi koi family record nahi mila. Agar aap naye Family Owner hain to upar se "Continue" dabakar apni family shuru karein — connect hone ke baad data khud isi Drive par save hota rahega.', false);
-          return;
-        }
-        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {headers:{Authorization:'Bearer '+DRIVE_TOKEN}});
-        if(!res.ok) throw new Error('File download nahi ho saki.');
-        const data = await res.json();
-        DB = Object.assign(defaultDB(), data, {config:Object.assign(defaultDB().config, data.config||{})});
-        if(!DB.config.driveAccountEmail && email) DB.config.driveAccountEmail = email; // backfill for records saved before this lock existed
-        LAST_KNOWN_DRIVE_JSON = JSON.stringify(DB);
-        saveDB();
-        alert('✅ Family ka record mil gaya! Ab apna naam/role chun kar apne password se Log In karein.');
-        render();
-      }catch(e){ setMsg('Family record load nahi ho saka: '+e.message, false); }
+      const result = await driveReconcile();
+      if(!result.ok){ setMsg('Family record load nahi ho saka: '+(result.reason||''), false); return; }
+      if(!result.hadRemote){
+        setMsg('Is Gmail par abhi koi family record nahi mila. Agar aap naye Family Owner hain to upar se "Continue" dabakar apni family shuru karein — connect hone ke baad data khud isi Drive par save hota rahega.', false);
+        return;
+      }
+      if(!DB.config.driveAccountEmail && email){ DB.config.driveAccountEmail = email; saveDB(); }
+      alert('✅ Family ka record mil gaya! Ab apna naam/role chun kar apne password se Log In karein.');
+      render();
     }
   });
   client.requestAccessToken({hint: DB.config.driveAccountEmail || ''});
 }
+
+/* ============================================================
+   RECONCILE — the single place that talks to Drive for both saving
+   AND loading. Every entry point below (manual buttons, silent
+   reconnect on page load, the 20-second auto-pull, the debounced
+   auto-save after an edit) all funnel through here, so there is only
+   ONE code path that can touch the shared file — which is what
+   guarantees a stale device can never clobber someone else's newer
+   update, and a fresh device always ends up with everyone's data.
+   Sequence: fetch whatever is currently on Drive -> merge it with
+   this device's copy (mergeDB, see above) -> save the merged result
+   locally -> and, only if the merge actually changed anything versus
+   what's on Drive, push the merged result back up.
+   ============================================================ */
+let DRIVE_SYNCING = false;
+async function driveReconcile(){
+  if(!DRIVE_TOKEN) return {ok:false, reason:'not-connected'};
+  if(!navigator.onLine) return {ok:false, reason:'offline'};
+  if(DRIVE_SYNCING) return {ok:false, reason:'busy'};
+  DRIVE_SYNCING = true;
+  try{
+    let fileId = await driveFindFileId();
+    let remoteText = null, remoteData = null;
+    if(fileId){
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {headers:{Authorization:'Bearer '+DRIVE_TOKEN}});
+      if(res.ok){
+        remoteText = await res.text();
+        try{ remoteData = JSON.parse(remoteText); }catch(e){ remoteData = null; }
+      }
+    }
+    const merged = remoteData ? mergeDB(DB, remoteData) : DB;
+    const mergedJSON = JSON.stringify(merged);
+    DB = merged;
+    try{ localStorage.setItem(DB_KEY, mergedJSON); }catch(e){ /* surfaced already by saveDB elsewhere */ }
+    let pushed = false;
+    if(!fileId || mergedJSON !== remoteText){
+      fileId = await driveUpload(fileId, mergedJSON);
+      pushed = true;
+    }
+    DRIVE_LAST_SYNC = new Date();
+    return {ok:true, fileId, pushed, hadRemote: !!remoteData};
+  }catch(e){
+    return {ok:false, reason:e.message};
+  }finally{
+    DRIVE_SYNCING = false;
+  }
+}
 async function driveSave(silent){
   if(!DRIVE_TOKEN){ if(!silent) alert('Pehle Google Drive se connect karein.'); return; }
   if(!navigator.onLine){ if(!silent) alert('Aap abhi offline hain — jese hi internet aayega, ye khud save ho jayega.'); return; }
-  try{
-    const fileId = await driveFindFileId();
-    const boundary='qazaboundary';
-    const metaPart = fileId ? '{}' : JSON.stringify({name:'qaza-tracker-backup.json', mimeType:'application/json'});
-    const body =
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaPart}\r\n`+
-      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(DB)}\r\n--${boundary}--`;
-    const url = fileId
-      ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
-      : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
-    const res = await fetch(url, {
-      method: fileId?'PATCH':'POST',
-      headers:{Authorization:'Bearer '+DRIVE_TOKEN, 'Content-Type':`multipart/related; boundary=${boundary}`},
-      body
-    });
-    if(!res.ok) throw new Error(await res.text());
-    DRIVE_LAST_SYNC = new Date();
-    LAST_KNOWN_DRIVE_JSON = JSON.stringify(DB);
-    if(!silent) alert('✅ Family ka poora record Google Drive par save ho gaya.');
-    if(SESSION && ACTIVE_TAB==='backup') render();
-  }catch(e){ if(!silent) alert('Drive par save nahi ho saka: '+e.message); }
+  const result = await driveReconcile();
+  if(result.ok){
+    if(!silent) alert('✅ Family ka poora record Google Drive par save ho gaya — aur agar kisi doosre member ne kuch add kiya tha, wo bhi is device par aa gaya hai.');
+    if(SESSION) render();
+  } else if(!silent){
+    alert('Drive par save nahi ho saka: '+(result.reason||'Nampata wajah')+'\nThodi dair mein khud-ba-khud dobara koshish hogi.');
+  }
 }
 async function driveLoad(){
   if(!DRIVE_TOKEN){ alert('Pehle Google Drive se connect karein.'); return; }
-  try{
-    const fileId = await driveFindFileId();
-    if(!fileId){ alert('Drive par abhi koi backup file nahi mili.'); return; }
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {headers:{Authorization:'Bearer '+DRIVE_TOKEN}});
-    if(!res.ok) throw new Error('File download nahi ho saki.');
-    const data = await res.json();
-    if(!confirm('Drive ki backup se is device ka data replace kar dein?')) return;
-    DB = Object.assign(defaultDB(), data, {config:Object.assign(defaultDB().config, data.config||{})});
-    LAST_KNOWN_DRIVE_JSON = JSON.stringify(DB);
-    saveDB(); alert('Drive se record load ho gaya.'); render();
-  }catch(e){ alert('Drive se load nahi ho saka: '+e.message); }
+  const result = await driveReconcile();
+  if(result.ok){
+    alert(result.hadRemote ? '✅ Drive ka latest record is device ke record ke saath mila diya gaya — koi bhi data zaya nahi hua.' : 'Abhi Drive par is family ka koi record nahi mila.');
+    render();
+  } else {
+    alert('Drive se load nahi ho saka: '+(result.reason||''));
+  }
 }
 function exportData(){
   const blob = new Blob([JSON.stringify(DB,null,2)], {type:'application/json'});
@@ -1127,12 +1308,19 @@ function exportData(){
 function importData(input){
   const file = input.files[0]; if(!file) return;
   const reader = new FileReader();
-  reader.onload = e=>{
+  reader.onload = async (e)=>{
     try{
       const data = JSON.parse(e.target.result);
       if(!confirm('This will replace all current data on this device with the backup file. Continue?')) return;
-      DB = Object.assign(defaultDB(), data, {config:Object.assign(defaultDB().config, data.config||{})});
-      saveDB(); alert('Backup restored successfully!'); render();
+      const d = defaultDB();
+      DB = Object.assign(d, data, {
+        config: Object.assign(d.config, data.config||{}),
+        tombstones: Object.assign(d.tombstones, data.tombstones||{}),
+        meta: { savedAt: Date.now() } // treat a restored backup as a brand-new local change so it syncs to Drive
+      });
+      saveDB();
+      if(DRIVE_TOKEN) await driveReconcile();
+      alert('Backup restored successfully!'); render();
     }catch(err){ alert('Could not read this file — please choose a valid backup JSON.'); }
   };
   reader.readAsText(file);
@@ -1248,7 +1436,10 @@ function attemptSilentDriveReconnect(){
         if(email && email.toLowerCase()!==lockedEmail.toLowerCase()) return; // some other Google account is active on this device/browser — stay disconnected rather than touch the wrong Drive
       }
       DRIVE_TOKEN = resp.access_token;
-      driveSave(true); // push any changes made locally since the last time we were connected
+      // Merge (not overwrite!) — this pulls in anything other members added
+      // while this device was away, AND safely pushes anything this device
+      // added while it was offline/disconnected. Neither side is ever lost.
+      await driveReconcile();
       if(SESSION) render();
     }
   });
@@ -1271,26 +1462,14 @@ function attemptSilentDriveReconnect(){
    pushed first, then the next pull cycle simply confirms Drive
    already matches.
    ============================================================ */
-let LAST_KNOWN_DRIVE_JSON = null;
 async function driveAutoPull(){
   if(!DRIVE_TOKEN || !navigator.onLine || !SESSION) return;
-  if(AUTO_SYNC_TIMER) return; // a local change is about to be pushed — don't race it
-  try{
-    const fileId = await driveFindFileId();
-    if(!fileId) return;
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {headers:{Authorization:'Bearer '+DRIVE_TOKEN}});
-    if(!res.ok) return;
-    const text = await res.text();
-    if(text === LAST_KNOWN_DRIVE_JSON) return; // nothing new since last time we checked
-    const data = JSON.parse(text);
-    DB = Object.assign(defaultDB(), data, {config:Object.assign(defaultDB().config, data.config||{})});
-    LAST_KNOWN_DRIVE_JSON = text;
-    localStorage.setItem(DB_KEY, JSON.stringify(DB)); // update this device's copy without re-triggering a push
-    DRIVE_LAST_SYNC = new Date();
-    render();
-  }catch(e){ /* silent — next cycle will try again */ }
+  if(AUTO_SYNC_TIMER) return; // a local change is about to be pushed — let it go first, then this will run next cycle
+  const before = JSON.stringify(DB);
+  const result = await driveReconcile();
+  if(result.ok && JSON.stringify(DB)!==before) render();
 }
-setInterval(driveAutoPull, 20000); // check every 20 seconds while the app is open
+setInterval(driveAutoPull, 12000); // check every 12 seconds while the app is open, so updates from other members show up quickly
 window.addEventListener('focus', driveAutoPull); // and the moment someone switches back to this tab
 window.addEventListener('online', driveAutoPull);
 

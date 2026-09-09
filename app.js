@@ -1518,7 +1518,11 @@ function attemptSilentDriveReconnect(){
       // while this device was away, AND safely pushes anything this device
       // added while it was offline/disconnected. Neither side is ever lost.
       await driveReconcile();
-      if(SESSION) render();
+      // Always re-render — not only when SESSION exists. A member sitting
+      // at the login screen (not logged into the app yet) needs their
+      // name to show up in the "Family Member" dropdown the moment this
+      // quiet background sync brings it in, without needing any click.
+      render();
     }
   });
   client.requestAccessToken({prompt:'', hint: DB.config.driveAccountEmail || ''});
@@ -1546,7 +1550,7 @@ function initDriveConnection(){
   const saved = loadPersistedDriveToken();
   if(saved){
     DRIVE_TOKEN = saved.token;
-    driveReconcile().then(result=>{ if(result.ok && SESSION) render(); });
+    driveReconcile().then(result=>{ if(result.ok) render(); });
   } else {
     attemptSilentDriveReconnect();
   }
@@ -1578,7 +1582,12 @@ window.addEventListener('visibilitychange', ()=>{
    already matches.
    ============================================================ */
 async function driveAutoPull(){
-  if(!DRIVE_TOKEN || !navigator.onLine || !SESSION) return;
+  // Deliberately NOT gated on SESSION: a member sitting at the login
+  // screen on a brand-new device needs their name to appear in the
+  // "Family Member" dropdown as soon as it syncs down — not only after
+  // they've somehow already logged in, which is the very thing this is
+  // pulling down the data to let them do.
+  if(!DRIVE_TOKEN || !navigator.onLine) return;
   if(AUTO_SYNC_TIMER) return; // a local change is about to be pushed — let it go first, then this will run next cycle
   const before = JSON.stringify(DB);
   const result = await driveReconcile();

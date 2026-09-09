@@ -17,9 +17,9 @@
    itself* (its HTML/CSS/JS/fonts) load without internet too.
    ------------------------------------------------------------ */
 
-const CACHE_NAME = 'qaza-tracker-v3';
+const CACHE_NAME = 'qaza-tracker-v4';
 
-// Bump CACHE_NAME (e.g. 'qaza-tracker-v3') any time you update app.js /
+// Bump CACHE_NAME (e.g. 'qaza-tracker-v4') any time you update app.js /
 // styles.css / index.html, so every device picks up the new version
 // instead of continuing to serve an old cached copy forever.
 

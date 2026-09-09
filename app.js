@@ -987,10 +987,32 @@ function driveConnect(){
       }
       DRIVE_TOKEN = resp.access_token;
       localStorage.setItem('qaza_drive_connected','1');
-      if(!lockedEmail && email){ DB.config.driveAccountEmail = email; saveDB(); }
-      alert('Google Drive se connect ho gaya! Isi family Gmail se sab devices connect karke ek hi record share kar sakte hain — ab se offline kiya gaya kaam, online hote hi khud-ba-khud save ho jayega.');
-      driveSave(true);
-      render();
+      try{
+        // Always check whether this Drive already holds the family's shared
+        // record FIRST, and if so, adopt it — this is what lets a Member's
+        // device pick up every Marhoom/member the Owner already added,
+        // instead of this device's own (often empty) local copy silently
+        // overwriting the real shared data.
+        const fileId = await driveFindFileId();
+        if(fileId){
+          const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {headers:{Authorization:'Bearer '+DRIVE_TOKEN}});
+          if(res.ok){
+            const data = await res.json();
+            DB = Object.assign(defaultDB(), data, {config:Object.assign(defaultDB().config, data.config||{})});
+          }
+        }
+        if(!DB.config.driveAccountEmail && email) DB.config.driveAccountEmail = email;
+        LAST_KNOWN_DRIVE_JSON = JSON.stringify(DB);
+        saveDB();
+        alert(fileId
+          ? '✅ Google Drive se connect ho gaya aur family ka poora record (Marhoom, Members, Progress) mil gaya!'
+          : 'Google Drive se connect ho gaya! Ye is family ki pehli backup hai — is device ka maujooda record ab yahan se save hota rahega, aur har doosra device isi Gmail se connect karke yahi record turant paa lega.');
+        if(!fileId) driveSave(true); // very first connect for this family — create the shared file
+        render();
+      }catch(e){
+        alert('Connect ho gaya, lekin record check karte waqt masla aaya: '+e.message);
+        render();
+      }
     }
   });
   DRIVE_TOKEN_CLIENT.requestAccessToken({hint: DB.config.driveAccountEmail || ''});

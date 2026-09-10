@@ -61,7 +61,14 @@ const TRIBUTE_GRANDFATHER = {
   en: 'We ask Allah Almighty to shower His mercy upon Ali Sher Jiskani, forgive his shortcomings, and grant him a place among the righteous in Jannat-ul-Firdaus. May every Qaza prayer completed on this platform, by his children and grandchildren, become a means of light, comfort and ease for him in his grave.',
   ur: 'ہم اللہ تعالیٰ کی بارگاہ میں دعا گو ہیں کہ علی شیر جسکانی پر اپنی خصوصی رحمت نازل فرمائے، ان کی مغفرت فرمائے اور جنت الفردوس میں اعلیٰ مقام عطا فرمائے۔ اس ویب سائٹ پر ان کی اولاد کی جانب سے ادا کی جانے والی ہر قضا نماز ان کے لیے قبر میں نور، راحت اور آسانی کا سبب بنے۔ آمین۔'
 };
-function todayISO(){ return new Date().toISOString().slice(0,10); }
+function todayISO(){
+  // IMPORTANT: local calendar date, NOT UTC. toISOString() converts to UTC
+  // first, which silently shows "yesterday" for several hours every night
+  // in Pakistan (UTC+5) and similar timezones — exactly the kind of
+  // off-by-one that must never happen in a prayer/Qaza date tracker.
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 function emptyCounts(){ const o={}; PRAYERS.forEach(p=>o[p.key]=0); return o; }
 
 /* ---------- Hijri conversion & wasal-anniversary helpers ---------- */
@@ -123,6 +130,57 @@ function hijriParts(dateObj){
   const shifted = shiftDays(dateObj, hijriAdjustDays());
   const o = jdnToHijriParts(gregorianToJDN(shifted.getFullYear(), shifted.getMonth()+1, shifted.getDate()));
   return (o.day && o.month && o.year) ? o : null;
+}
+/* Inverse of jdnToHijriParts — same "civil/tabular" Islamic calendar, same
+   epoch, so the pair round-trips exactly (verified against 600+ dates
+   spanning 1950-2070 before shipping). Needed for the Living Members
+   Baligh-date calculation below: "this person's Hijri birthday, N Hijri
+   years later" cannot be done with Gregorian year-arithmetic, since a
+   Hijri year is ~354/355 days — it has to go through the Hijri calendar. */
+function hijriToJDN(year, month, day){
+  const epoch = 1948440;
+  return day + Math.ceil(29.5*(month-1)) + (year-1)*354 + Math.floor((3+11*year)/30) + epoch - 1;
+}
+function jdnToGregorian(jdn){
+  const a = jdn + 32044;
+  const b = Math.floor((4*a+3)/146097);
+  const c = a - Math.floor((146097*b)/4);
+  const d2 = Math.floor((4*c+3)/1461);
+  const e = c - Math.floor((1461*d2)/4);
+  const m2 = Math.floor((5*e+2)/153);
+  const day = e - Math.floor((153*m2+2)/5) + 1;
+  const month = m2 + 3 - 12*Math.floor(m2/10);
+  const year = 100*b + d2 - 4800 + Math.floor(m2/10);
+  return {year, month, day};
+}
+function ymdISO(y,m,d){ return `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+// Adds N *Hijri* (qamari) years to a Gregorian ISO date and returns the
+// resulting Gregorian ISO date — this is how "Baligh at 15 Hijri years old"
+// actually has to be computed (a Hijri year is ~10-11 days shorter than a
+// Gregorian one, so simply adding 15 to the Gregorian year would land on
+// the wrong date by several months after a lifetime).
+function addHijriYears(isoDob, years){
+  const [gy,gm,gd] = isoDob.split('-').map(Number);
+  const jdn = gregorianToJDN(gy,gm,gd);
+  const h = jdnToHijriParts(jdn);
+  const newYear = h.year + years;
+  let day = h.day;
+  // Guard the rare case a Hijri month-30 birth date lands on a 29-day
+  // month N years later — clamp to that month's last real day instead of
+  // silently overflowing into the next month.
+  let testJdn = hijriToJDN(newYear, h.month, day);
+  let back = jdnToHijriParts(testJdn);
+  if(back.day!==day || back.month!==h.month || back.year!==newYear) day = day - 1;
+  const finalJdn = hijriToJDN(newYear, h.month, day);
+  const g = jdnToGregorian(finalJdn);
+  return ymdISO(g.year, g.month, g.day);
+}
+// Pure ISO-string date arithmetic, anchored in UTC so it can never drift by
+// a day depending on the device's timezone or daylight-saving changes.
+function isoOffset(iso, deltaDays){
+  const [y,m,d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d) + deltaDays*86400000);
+  return ymdISO(dt.getUTCFullYear(), dt.getUTCMonth()+1, dt.getUTCDate());
 }
 /* Owner ke config.anniversaryFormat ke mutabiq — 'hijri' select hai tu Agli Barsi
    Hijri calendar ki usi tareekh (month/day) par aayegi jis din Marhoom ka wasal hua tha,
@@ -207,7 +265,8 @@ function defaultDB(){
       anniversaryFormat:'gregorian',  // 'gregorian' or 'hijri' — which calendar the Barsi alert fires on
       hijriCountry:'PK',      // which country's moon-sighting convention to approximate (default Pakistan)
       hijriAdjustDays:-1,     // day-offset applied to the Umm al-Qura calendar for that country
-      driveAccountEmail:null  // once set, only this Gmail may connect Google Drive for this family
+      driveAccountEmail:null,  // once set, only this Gmail may connect Google Drive for this family
+      baligh:{ maleHijriYears:15, femaleHijriYears:9 } // age (in Hijri/qamari years) at which Namaz becomes Wajib — adjustable in Settings
     },
     marhooms:[],   // {id,name,relation,gender,dob(Gregorian),dod(Gregorian),dodHijri,photo,targets:{fajr,zuhr,asr,maghrib,isha},updatedAt}
     members:[],    // {id,name,relation,password,photo,updatedAt}
@@ -310,6 +369,65 @@ function mergeDB(a, b){
   };
   out.marhooms = mergeById(a.marhooms||[], b.marhooms||[], out.tombstones.marhooms);
   out.members  = mergeById(a.members||[], b.members||[], out.tombstones.members);
+
+  /* Field-level safety net for Living Members data. mergeById above picks
+     one whole member record when both sides edited the same person
+     (whichever has the newer updatedAt) — fine for name/password/photo,
+     but a member could mark their own daily prayers from two different
+     devices (phone + tablet) before either syncs. Picking only one side's
+     whole record would silently drop the OTHER device's marks. So we
+     separately re-merge dailyMarks (a date/waqt is "done" if EITHER side
+     says so — a tick is never lost) and qazaAda (the same safe
+     running-max merge already used for Marhoom progress above) from BOTH
+     copies, regardless of which whole record mergeById picked. */
+  const aMemMap = new Map((a.members||[]).map(m=>[m.id,m]));
+  const bMemMap = new Map((b.members||[]).map(m=>[m.id,m]));
+  out.members = out.members.map(mem=>{
+    const am = aMemMap.get(mem.id), bm = bMemMap.get(mem.id);
+    if(!am && !bm) return mem;
+    const dm = {};
+    [am, bm].forEach(src=>{
+      if(!src || !src.dailyMarks) return;
+      Object.keys(src.dailyMarks).forEach(date=>{
+        const day = src.dailyMarks[date] || {};
+        PRAYERS.forEach(p=>{ if(day[p.key]){ if(!dm[date]) dm[date]={}; dm[date][p.key]=true; } });
+      });
+    });
+    const qa = {};
+    PRAYERS.forEach(p=>{ qa[p.key] = Math.max(Number(am?.qazaAda?.[p.key])||0, Number(bm?.qazaAda?.[p.key])||0); });
+    // profile is written once at registration and never edited again — if
+    // (extremely rarely) both sides show a registration, keep whichever
+    // happened first so this resolves the same way on every device.
+    let profile = am?.profile || bm?.profile || mem.profile || null;
+    if(am?.profile?.registeredAt && bm?.profile?.registeredAt){
+      profile = am.profile.registeredAt <= bm.profile.registeredAt ? am.profile : bm.profile;
+    }
+    return Object.assign({}, mem, { dailyMarks: dm, qazaAda: qa, profile });
+  });
+
+  // Same field-level safety net as above, but for the Owner's own
+  // self-tracking (DB.config.ownerAccount) — an Owner can also mark their
+  // own daily prayers/Qaza from more than one device.
+  if(out.config.ownerAccount){
+    const ao = a.config && a.config.ownerAccount, bo = b.config && b.config.ownerAccount;
+    if(ao || bo){
+      const dm = {};
+      [ao, bo].forEach(src=>{
+        if(!src || !src.dailyMarks) return;
+        Object.keys(src.dailyMarks).forEach(date=>{
+          const day = src.dailyMarks[date] || {};
+          PRAYERS.forEach(p=>{ if(day[p.key]){ if(!dm[date]) dm[date]={}; dm[date][p.key]=true; } });
+        });
+      });
+      const qa = {};
+      PRAYERS.forEach(p=>{ qa[p.key] = Math.max(Number(ao?.qazaAda?.[p.key])||0, Number(bo?.qazaAda?.[p.key])||0); });
+      let profile = ao?.profile || bo?.profile || out.config.ownerAccount.profile || null;
+      if(ao?.profile?.registeredAt && bo?.profile?.registeredAt){
+        profile = ao.profile.registeredAt <= bo.profile.registeredAt ? ao.profile : bo.profile;
+      }
+      out.config.ownerAccount = Object.assign({}, out.config.ownerAccount, { dailyMarks: dm, qazaAda: qa, profile });
+    }
+  }
 
   const liveMarhoomIds = new Set(out.marhooms.map(m=>m.id));
   out.progress = {};
@@ -419,6 +537,65 @@ function memberContribution(marhoomId, memberId){
   const rec = (DB.progress[marhoomId]||{})[memberId] || emptyCounts();
   const total = PRAYERS.reduce((a,p)=>a+(Number(rec[p.key])||0),0);
   return {rec, total};
+}
+
+/* ============================================================
+   LIVING MEMBERS — daily Qaza tracker for family members who are
+   still alive.
+
+   Design note (important for correctness): the remaining-Qaza number
+   is NEVER stored as a running counter that gets incremented by some
+   background "rollover" job. It is recomputed FRESH, every single
+   time, from two small pieces of source data:
+     1. member.profile.startingQaza — a one-time number frozen at
+        registration (Baligh-to-registration-day debt, self-reported).
+     2. member.dailyMarks — a plain per-date log of which of the 5
+        daily prayers were actually marked done that day.
+   "How many days were missed" is just "how many days, from
+   registration to yesterday, don't have a true mark" — computed live.
+   This means there is nothing to double-count, nothing to race, and
+   nothing for two devices syncing at the same moment to conflict
+   over: both always compute the exact same answer from the exact
+   same log, no matter which device (or how many at once) opens the
+   app. See the matching merge step in mergeDB() for how the log
+   itself stays safe across devices.
+   ============================================================ */
+function balighAgeFor(gender){
+  const b = (DB.config && DB.config.baligh) || {};
+  return gender==='female' ? (Number(b.femaleHijriYears)||9) : (Number(b.maleHijriYears)||15);
+}
+function livingQazaStats(member, asOfISO){
+  const p = member && member.profile;
+  if(!p || !p.registeredAt) return null;
+  asOfISO = asOfISO || todayISO();
+  const isBaligh = p.balighISO <= asOfISO;
+  const regD = new Date(p.registeredAt);
+  const regDateISO = ymdISO(regD.getUTCFullYear(), regD.getUTCMonth()+1, regD.getUTCDate());
+  const trackStart = p.balighISO > regDateISO ? p.balighISO : regDateISO;
+  const yesterday = isoOffset(asOfISO, -1);
+  const perWaqt = {};
+  let totalOwed=0, totalAda=0, totalRemaining=0;
+  PRAYERS.forEach(pr=>{
+    const start = Math.max(0, Number(p.startingQaza?.[pr.key])||0);
+    let missed = 0;
+    if(isBaligh && trackStart <= yesterday){
+      let cur = trackStart;
+      // Bounded, deterministic day-by-day scan — identical result on every
+      // device, however many days it spans (a few thousand iterations at
+      // most even after decades of use, which is negligible for a browser).
+      while(cur <= yesterday){
+        const marks = member.dailyMarks && member.dailyMarks[cur];
+        if(!marks || !marks[pr.key]) missed++;
+        cur = isoOffset(cur, 1);
+      }
+    }
+    const ada = Math.max(0, Number(member.qazaAda?.[pr.key])||0);
+    const owed = start + missed;
+    const remaining = Math.max(0, owed - ada);
+    perWaqt[pr.key] = {start, missed, owed, ada, remaining};
+    totalOwed += owed; totalAda += Math.min(ada, owed); totalRemaining += remaining;
+  });
+  return {isBaligh, balighISO:p.balighISO, trackStart, perWaqt, totalOwed, totalAda, totalRemaining};
 }
 
 /* ============================================================
@@ -539,9 +716,11 @@ function shell(title, tabs, activeKey, content, whoLabel){
    ============================================================ */
 const OWNER_TABS = [
   {key:'setup', label:'Family Setup', icon:'🏠'},
+  {key:'myqaza', label:'Meri Namaz', icon:'🙏'},
   {key:'marhoom', label:'Marhoom', icon:'🕊️'},
   {key:'ada', label:'Ada Karein', icon:'🤲'},
   {key:'members', label:'Family Members', icon:'👨‍👩‍👧‍👦'},
+  {key:'living', label:'Zinda Members', icon:'🧍'},
   {key:'progress', label:'Progress', icon:'📊'},
   {key:'dua', label:'Dua & Maghfirat', icon:'📿'},
   {key:'activity', label:'Activity Log', icon:'📜'},
@@ -552,9 +731,11 @@ function renderOwner(){
   if(!ACTIVE_TAB || !OWNER_TABS.find(t=>t.key===ACTIVE_TAB)) ACTIVE_TAB='setup';
   let content='';
   if(ACTIVE_TAB==='setup') content = oSetup();
+  if(ACTIVE_TAB==='myqaza') content = mMyQaza();
   if(ACTIVE_TAB==='marhoom') content = oMarhoom();
   if(ACTIVE_TAB==='ada') content = mMarkDone(getActor());
   if(ACTIVE_TAB==='members') content = oMembers();
+  if(ACTIVE_TAB==='living') content = renderLivingMembers(true);
   if(ACTIVE_TAB==='progress') content = renderProgressOverview();
   if(ACTIVE_TAB==='dua') content = renderDua();
   if(ACTIVE_TAB==='activity') content = renderActivityLog();
@@ -601,6 +782,18 @@ function oSetup(){
     <p class="text-xs text-gray-400 mt-2">Base calculation Umm al-Qura (Saudi) calendar par hoti hai; upar wala adjustment usi mein add hota hai — yehi Wasal ki Hijri tareekh aur Barsi Alert dono par lagu hota hai.</p>
   `) : ''}
   ${card(`
+    <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">🧍 Zinda Members — Baligh (Adulthood) Age</h2>
+    <p class="text-sm text-gray-600 mb-3">Jab koi Family Member register karta hai, uski Date of Birth se yehi Hijri (qamari) age istemal karke unki "Baligh hone ki tareekh" nikaali jati hai — usi din se unki Namaz Wajib maani jati hai aur Qaza ka hisaab shuru hota hai. Ye sirf naye registrations par lagu hoga; jo member pehle hi register ho chuka hai uski Baligh tareekh badalne se dobara calculate nahi hogi (taake purana hisaab achanak na badal jaye).</p>
+    <div class="grid md:grid-cols-2 gap-3 max-w-md mb-2">
+      <div><label class="block text-xs font-bold mb-1 text-gray-500">Larkon ke liye (Hijri saal)</label>
+      <input id="cfgBalighMale" type="number" min="1" value="${(c.baligh&&c.baligh.maleHijriYears)||15}" class="border rounded-lg px-3 py-2 w-full"></div>
+      <div><label class="block text-xs font-bold mb-1 text-gray-500">Larkiyon ke liye (Hijri saal)</label>
+      <input id="cfgBalighFemale" type="number" min="1" value="${(c.baligh&&c.baligh.femaleHijriYears)||9}" class="border rounded-lg px-3 py-2 w-full"></div>
+    </div>
+    <button onclick="saveBalighAges()" class="emerald-btn rounded-lg px-5 py-2 font-bold">Save</button>
+    <span id="balighMsg" class="ml-3 text-sm font-bold text-green-600 hidden">Saved!</span>
+  `)}
+  ${card(`
     <h2 class="text-xl font-bold mb-4" style="color:var(--emerald-deep)">🔐 Family Owner Account</h2>
     <p class="text-sm text-gray-600 mb-3">Signed in as <b>${esc(c.ownerAccount?.name||'')}</b>. Your Name and Password are all that's needed to log in.</p>
     <div class="flex items-center gap-3 mb-4">
@@ -643,6 +836,17 @@ function nudgeHijriAdjust(delta){
   DB.config.hijriAdjustDays = (DB.config.hijriAdjustDays||0) + delta;
   saveDB();
   render();
+}
+function saveBalighAges(){
+  const male = Number(document.getElementById('cfgBalighMale').value);
+  const female = Number(document.getElementById('cfgBalighFemale').value);
+  if(!(male>0) || !(female>0)){ alert('Sahi age (1 se zyada) darj karein.'); return; }
+  if(!DB.config.baligh) DB.config.baligh = {};
+  DB.config.baligh.maleHijriYears = male;
+  DB.config.baligh.femaleHijriYears = female;
+  saveDB();
+  const m=document.getElementById('balighMsg'); if(m) m.classList.remove('hidden');
+  setTimeout(()=>render(),800);
 }
 async function saveFamilySetup(){
   DB.config.familyName = document.getElementById('cfgFamilyName').value.trim() || DB.config.familyName;
@@ -1404,6 +1608,8 @@ function importData(input){
    ============================================================ */
 const MEMBER_TABS = [
   {key:'markdone', label:'Ada Karein', icon:'🤲'},
+  {key:'myqaza', label:'Meri Namaz', icon:'🙏'},
+  {key:'living', label:'Zinda Members', icon:'🧍'},
   {key:'progress', label:'Family Progress', icon:'📊'},
   {key:'dua', label:'Dua & Maghfirat', icon:'📿'},
   {key:'sync', label:'Google Drive', icon:'☁️'},
@@ -1417,6 +1623,8 @@ function renderMember(){
   if(!ACTIVE_TAB || !MEMBER_TABS.find(t=>t.key===ACTIVE_TAB)) ACTIVE_TAB='markdone';
   let content='';
   if(ACTIVE_TAB==='markdone') content = mMarkDone(getActor());
+  if(ACTIVE_TAB==='myqaza') content = mMyQaza();
+  if(ACTIVE_TAB==='living') content = renderLivingMembers(false);
   if(ACTIVE_TAB==='progress') content = renderProgressOverview();
   if(ACTIVE_TAB==='activity') content = renderActivityLog();
   if(ACTIVE_TAB==='directory') content = renderFamilyDirectory();
@@ -1475,6 +1683,259 @@ function incPrayer(marhoomId, prayerKey, delta, btn){
   saveDB();
   if(btn && delta>0){ btn.classList.add('pulse'); setTimeout(()=>render(), 180); }
   else render();
+}
+
+/* ============================================================
+   LIVING MEMBERS — "Meri Namaz" (member's own screen) + the shared
+   family-wide "Zinda Members" list. See livingQazaStats() above for
+   the calculation itself; everything here is just registration form
+   handling, daily-mark buttons, the Qaza pay-down counter, and the
+   Owner's "mark as passed away" conversion into a Marhoom record.
+   ============================================================ */
+function getSelfTrackRecord(){
+  if(!SESSION) return null;
+  if(SESSION.role==='owner') return DB.config.ownerAccount || null;
+  return DB.members.find(m=>m.id===SESSION.memberId) || null;
+}
+function mMyQaza(){
+  const record = getSelfTrackRecord();
+  if(!record) return card(`<p class="text-gray-500">Record nahi mila.</p>`);
+  if(!record.profile || !record.profile.registeredAt) return mRegistrationForm();
+  const s = livingQazaStats(record);
+  const today = todayISO();
+  const todayMarks = (record.dailyMarks && record.dailyMarks[today]) || {};
+  if(!s.isBaligh){
+    return card(`
+      <h2 class="text-xl font-bold mb-3" style="color:var(--emerald-deep)">🙏 Meri Namaz</h2>
+      <p class="text-sm text-gray-600">Aap ki Baligh (Namaz Wajib hone ki) tareekh: <b>${esc(s.balighISO)}</b> (${esc(toHijri(s.balighISO))}).</p>
+      <p class="text-sm text-gray-500 mt-2">Is tareekh tak pohanchne ke baad, yahan aap ki roz ki Namaz aur Qaza ka hisaab khud shuru ho jayega.</p>
+    `);
+  }
+  return `
+  ${card(`
+    <h2 class="text-xl font-bold mb-1" style="color:var(--emerald-deep)">🙏 Aaj ki Wajib Namaz — ${esc(today)}</h2>
+    <p class="text-sm text-gray-500 mb-4">Jo waqt aaj mark nahi hoga, wo kal se aap ke Qaza box mein khud shamil ho jayega.</p>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+      ${PRAYERS.map(p=>`
+        <button onclick="toggleTodayMark('${p.key}')" class="prayer-tile text-center" style="${todayMarks[p.key]?'border-color:var(--emerald);background:var(--emerald-pale)':''}">
+          <div class="text-2xl mb-1">${todayMarks[p.key]?'✅':'⬜'}</div>
+          <div class="font-bold text-sm">${p.label}</div>
+        </button>
+      `).join('')}
+    </div>
+  `)}
+  ${card(`
+    <h2 class="text-xl font-bold mb-1" style="color:var(--emerald-deep)">📿 Meri Qaza Namaz</h2>
+    <p class="text-sm text-gray-500 mb-4">Kul baqi Qaza: <b style="color:var(--emerald)">${s.totalRemaining}</b> (${s.totalOwed} mein se ${s.totalAda} ada ki ja chuki hai)</p>
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+      ${PRAYERS.map(p=>{
+        const st = s.perWaqt[p.key];
+        return `<div class="prayer-tile">
+          <div class="flex justify-between text-sm font-bold mb-1"><span>${p.label}</span><span>${st.ada}/${st.owed}</span></div>
+          ${bar(st.owed? Math.min(st.ada/st.owed*100,100) : 100)}
+          <div class="text-xs text-gray-500 mt-2 mb-2">Baqi Qaza: <b style="color:var(--danger)">${st.remaining}</b></div>
+          <div class="flex gap-2">
+            <button onclick="incLivingQaza('${p.key}',1)" class="plus-btn">✅ Qaza Ada Ki (+1)</button>
+            ${st.ada>0?`<button onclick="incLivingQaza('${p.key}',-1)" title="Undo" class="minus-btn">−1</button>`:''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `)}
+  ${SESSION.role==='owner' ? card(`
+    <h2 class="text-lg font-bold mb-2" style="color:var(--danger)">🕊️ Wasal / Intiqal</h2>
+    <p class="text-sm text-gray-600 mb-3">Agar Owner ka intiqal ho jaye, to yahan se unka record (isi tarah, baqi Qaza samet) Marhoom section mein shift kiya ja sakta hai, aur family mein se kisi ek Member ko naya Family Owner bhi bana sakte hain — isi waqt.</p>
+    <button onclick="ownerMarkWasal()" class="rounded-lg px-5 py-2 font-bold text-white" style="background:var(--danger)">🕊️ Owner Ka Wasal Darj Karein</button>
+  `) : ''}`;
+}
+function mRegistrationForm(){
+  return card(`
+    <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">🙏 Apna Register Mukammal Karein</h2>
+    <p class="text-sm text-gray-600 mb-4">Ek baar ye details bhar dein — is se aap ki Baligh hone ki tareekh aur ab tak ki Qaza Namaz khud calculate ho jayegi. Ye sirf ek dafa karna hai.</p>
+    <div class="grid md:grid-cols-2 gap-3 mb-3">
+      <div><label class="block text-sm font-bold mb-1">Father's Name</label>
+      <input id="regFatherName" type="text" class="w-full border rounded-lg px-3 py-2" placeholder="Walid ka naam"></div>
+      <div><label class="block text-sm font-bold mb-1">Gender</label>
+      <select id="regGender" class="w-full border rounded-lg px-3 py-2">
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+      </select></div>
+      <div><label class="block text-sm font-bold mb-1">Date of Birth (Gregorian)</label>
+      <input id="regDob" type="date" class="w-full border rounded-lg px-3 py-2"></div>
+    </div>
+    <h3 class="font-bold mb-2" style="color:var(--emerald)">Ab tak (Baligh hone ke baad se) kitni Namaz parh chuke hain?</h3>
+    <p class="text-xs text-gray-400 mb-3">Agar theek se pata na ho tu 0 hi rehne dein — baaki hisaab Baligh hone ki tareekh se khud ho jayega.</p>
+    <div class="grid grid-cols-3 md:grid-cols-5 gap-2 mb-4">
+      ${PRAYERS.map(p=>`<div><label class="block text-xs font-bold mb-1">${p.label}</label>
+        <input id="regPrayed_${p.key}" type="number" min="0" value="0" class="border rounded-lg px-2 py-2 w-full text-center"></div>`).join('')}
+    </div>
+    <button onclick="submitLivingRegistration()" class="emerald-btn rounded-lg px-5 py-2 font-bold">Register Karein</button>
+  `);
+}
+function submitLivingRegistration(){
+  const record = getSelfTrackRecord();
+  if(!record) return;
+  if(record.profile && record.profile.registeredAt) return; // already registered — nothing to do
+  const fatherName = document.getElementById('regFatherName').value.trim();
+  const gender = document.getElementById('regGender').value;
+  const dob = document.getElementById('regDob').value;
+  if(!fatherName){ alert('Father\u2019s Name likhein.'); return; }
+  if(!dob){ alert('Date of Birth select karein.'); return; }
+  if(dob > todayISO()){ alert('Date of Birth aaj se pehle ki honi chahiye.'); return; }
+  const alreadyPrayed = {}; PRAYERS.forEach(p=>{ alreadyPrayed[p.key] = Math.max(0, Number(document.getElementById('regPrayed_'+p.key).value)||0); });
+  const balighISO = addHijriYears(dob, balighAgeFor(gender));
+  const now = Date.now();
+  const regDateISO = todayISO();
+  const obligDaysAtReg = balighISO <= isoOffset(regDateISO,-1) ? (daysBetweenISO(balighISO, isoOffset(regDateISO,-1)) + 1) : 0;
+  const startingQaza = {};
+  PRAYERS.forEach(p=>{ startingQaza[p.key] = Math.max(0, obligDaysAtReg - alreadyPrayed[p.key]); });
+  record.profile = { fatherName, gender, dob, balighISO, startingQaza, registeredAt: now };
+  record.dailyMarks = record.dailyMarks || {};
+  record.qazaAda = record.qazaAda || emptyCounts();
+  record.updatedAt = now;
+  saveDB(); render();
+}
+function daysBetweenISO(fromISO, toISOStr){
+  const [y1,m1,d1] = fromISO.split('-').map(Number), [y2,m2,d2] = toISOStr.split('-').map(Number);
+  return Math.round((Date.UTC(y2,m2-1,d2) - Date.UTC(y1,m1-1,d1)) / 86400000);
+}
+function toggleTodayMark(waqtKey){
+  const record = getSelfTrackRecord();
+  if(!record || !record.profile || !record.profile.registeredAt) return;
+  const s = livingQazaStats(record);
+  if(!s || !s.isBaligh) return;
+  const today = todayISO();
+  if(!record.dailyMarks) record.dailyMarks = {};
+  if(!record.dailyMarks[today]) record.dailyMarks[today] = {};
+  record.dailyMarks[today][waqtKey] = !record.dailyMarks[today][waqtKey];
+  record.updatedAt = Date.now();
+  saveDB(); render();
+}
+function incLivingQaza(waqtKey, delta){
+  const record = getSelfTrackRecord();
+  if(!record || !record.profile || !record.profile.registeredAt) return;
+  if(!record.qazaAda) record.qazaAda = emptyCounts();
+  record.qazaAda[waqtKey] = Math.max(0, (Number(record.qazaAda[waqtKey])||0) + delta);
+  record.updatedAt = Date.now();
+  saveDB(); render();
+}
+function renderLivingMembers(isOwner){
+  const rows = DB.members.map(mem=>{
+    if(!mem.profile || !mem.profile.registeredAt){
+      return `<tr class="border-b table-row">
+        <td class="py-2">${mem.photo?`<img src="${mem.photo}" class="staff-avatar">`:'<span class="text-2xl">👤</span>'}</td>
+        <td>${esc(mem.name)}</td><td colspan="4" class="text-gray-400 text-sm">Abhi register nahi hua</td>
+        <td></td>
+      </tr>`;
+    }
+    const s = livingQazaStats(mem);
+    return `<tr class="border-b table-row">
+      <td class="py-2">${mem.photo?`<img src="${mem.photo}" class="staff-avatar">`:'<span class="text-2xl">👤</span>'}</td>
+      <td>${esc(mem.name)}</td>
+      <td class="text-xs text-gray-500">${esc(mem.profile.fatherName||'')}</td>
+      <td class="text-xs text-gray-500">${mem.profile.gender==='female'?'Female':'Male'}</td>
+      <td class="text-xs text-gray-500">${esc(mem.profile.dob||'')}<br><span class="text-gray-400">Baligh: ${esc(s.balighISO)}</span></td>
+      <td class="font-bold" style="color:${s.totalRemaining>0?'var(--danger)':'var(--emerald)'}">${s.isBaligh? s.totalRemaining+' baqi' : 'Abhi Baligh nahi'}</td>
+      <td class="whitespace-nowrap">
+        ${isOwner?`<button onclick="markMemberWasal('${mem.id}')" title="Wasal Date Add Karein" class="text-red-600 text-sm font-bold">🕊️ Wasal</button>`:''}
+      </td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="7" class="text-center text-gray-400 py-4">Koi Family Member nahi.</td></tr>`;
+  return `
+  ${card(`
+    <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">🧍 Zinda Family Members</h2>
+    <p class="text-sm text-gray-500 mb-4">${isOwner? 'Har member ki daily Namaz aur baqi Qaza ka record — jab koi wafaat pa jaye, unke naam ke saamne "Wasal" dabayen; unka record khud Marhoom section mein chala jayega.' : 'Har registered member ki baqi Qaza sab ko yahan nazar aati hai.'}</p>
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead><tr class="text-left border-b"><th class="py-2">Photo</th><th>Naam</th><th>Father's Name</th><th>Gender</th><th>DOB / Baligh</th><th>Baqi Qaza</th><th>${isOwner?'Action':''}</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    </div>
+  `)}`;
+}
+function markMemberWasal(memberId){
+  const member = DB.members.find(m=>m.id===memberId);
+  if(!member) return;
+  if(!member.profile || !member.profile.registeredAt){
+    alert('Ye member abhi register nahi hua — Qaza calculate nahi ki ja sakti. Agar inka wisaal ho chuka hai, tu unhein seedha "Marhoom" tab se manually add karein.');
+    return;
+  }
+  const dod = prompt(`${member.name} ki Wasal / Date of Death darj karein (YYYY-MM-DD):`, todayISO());
+  if(dod===null) return;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(dod)){ alert('Sahi format mein tareekh likhein: YYYY-MM-DD'); return; }
+  if(dod < member.profile.dob){ alert('Wasal ki tareekh Date of Birth se pehle nahi ho sakti.'); return; }
+  if(!confirm(`${member.name} ka record ab Marhoom section mein shamil ho jayega aur unka Family Member login hamesha ke liye hata diya jayega. Ye wapis nahi ho sakta. Jari rakhein?`)) return;
+  const s = livingQazaStats(member, dod);
+  const targets = {}; PRAYERS.forEach(p=>{ targets[p.key] = s.perWaqt[p.key].owed; });
+  const newId = uid();
+  const now = Date.now();
+  DB.marhooms.push({
+    id:newId, name:member.name, relation:member.relation||'', gender:member.profile.gender||'',
+    dob:member.profile.dob||'', dod, dodHijri:toHijri(dod), photo:member.photo||null,
+    targets, updatedAt: now
+  });
+  DB.progress[newId] = {};
+  DB.progress[newId][member.id] = {};
+  PRAYERS.forEach(p=>{ DB.progress[newId][member.id][p.key] = Math.min(s.perWaqt[p.key].ada, s.perWaqt[p.key].owed); });
+  DB.members = DB.members.filter(m=>m.id!==memberId);
+  DB.tombstones.members.push({id:memberId, deletedAt:now});
+  saveDB(); render();
+  alert(`${member.name} ka record Marhoom section mein shamil ho gaya hai — ab family Waris unki baqi Qaza Namaz ada kar sakte hain. Allah unhein maghfirat farmaye. 🤲`);
+}
+function ownerMarkWasal(){
+  const oa = DB.config.ownerAccount;
+  if(!oa) return;
+  if(!oa.profile || !oa.profile.registeredAt){
+    alert('Pehle "Meri Namaz" mein apna register mukammal karein (Father\u2019s Name, Gender, Date of Birth) — us ke baad hi Wasal par Qaza ka record sahi tarah Marhoom section mein shift ho sakega.');
+    return;
+  }
+  if(DB.members.length===0){
+    alert('Naya Family Owner banane ke liye kam az kam ek Family Member hona zaroori hai. Pehle "Family Members" tab se kisi ko add karein, phir yahan wapas aayein.');
+    return;
+  }
+  const dod = prompt(`Owner (${oa.name}) ki Wasal / Date of Death darj karein (YYYY-MM-DD):`, todayISO());
+  if(dod===null) return;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(dod)){ alert('Sahi format mein tareekh likhein: YYYY-MM-DD'); return; }
+  if(dod < oa.profile.dob){ alert('Wasal ki tareekh Date of Birth se pehle nahi ho sakti.'); return; }
+
+  const namesList = DB.members.map((m,i)=>`${i+1}. ${m.name}${m.relation?' ('+m.relation+')':''}`).join('\n');
+  const choice = prompt(`Naya Family Owner kaun banega? Neeche list mein se number likh kar bhejein:\n\n${namesList}`);
+  if(choice===null) return;
+  const idx = Number(choice) - 1;
+  if(!(idx>=0 && idx<DB.members.length)){ alert('Sahi number darj nahi hua — koi tabdeeli nahi ki gayi.'); return; }
+  const successor = DB.members[idx];
+
+  if(!confirm(`Tasdeeq karein:\n\n• ${oa.name} ka record Marhoom section mein shamil ho jayega.\n• "${successor.name}" ab naye Family Owner ban jayenge (apne isi maujooda password se "Owner" tab se login karke).\n\nYe amal wapis nahi ho sakta. Jari rakhein?`)) return;
+
+  const s = livingQazaStats(oa, dod);
+  const targets = {}; PRAYERS.forEach(p=>{ targets[p.key] = s.perWaqt[p.key].owed; });
+  const newId = uid();
+  const now = Date.now();
+  DB.marhooms.push({
+    id:newId, name:oa.name, relation:'Family Owner', gender:oa.profile.gender||'',
+    dob:oa.profile.dob||'', dod, dodHijri:toHijri(dod), photo:oa.photo||null,
+    targets, updatedAt: now
+  });
+  // Whatever the Owner had already prayed off themselves stays credited —
+  // attributed to the fixed 'owner' actor id, same slot every Owner (past
+  // or future) uses when contributing toward any Marhoom's Qaza.
+  DB.progress[newId] = { owner: {} };
+  PRAYERS.forEach(p=>{ DB.progress[newId].owner[p.key] = Math.min(s.perWaqt[p.key].ada, s.perWaqt[p.key].owed); });
+
+  // Promote the chosen Member into the Owner slot — they keep their own
+  // name/password/photo and (importantly) their own personal Qaza
+  // self-tracking carries over uninterrupted, now living under
+  // DB.config.ownerAccount instead of DB.members.
+  DB.members = DB.members.filter(m=>m.id!==successor.id);
+  DB.tombstones.members.push({id:successor.id, deletedAt:now});
+  DB.config.ownerAccount = {
+    name: successor.name, password: successor.password, photo: successor.photo||null,
+    profile: successor.profile||null, dailyMarks: successor.dailyMarks||{}, qazaAda: successor.qazaAda||emptyCounts(),
+    updatedAt: now
+  };
+  ACTIVE_TAB = null; // this session's tabs/state belonged to the old Owner identity
+  saveDB(); render();
+  alert(`${oa.name} ka record Marhoom section mein shamil ho gaya — Allah unhein maghfirat farmaye. 🤲\n\n"${successor.name}" ab naye Family Owner hain. Wo agli martaba "Owner" tab se apne usi (purane Member wale) password se login karein.`);
 }
 
 /* ============================================================

@@ -677,7 +677,21 @@ function doLogin(){
     const pass = document.getElementById('loginPass').value;
     const acc = DB.config.ownerAccount;
     if(name.toLowerCase()===String(acc.name).toLowerCase() && pass===acc.password){ setSession({role:'owner'}); render(); }
-    else showErr('Incorrect name or password.');
+    else {
+      // Common cause of a "wrong password" report that is NOT actually a
+      // wrong password: this device's local copy of the family record is
+      // stale (e.g. someone was just promoted to Owner on a DIFFERENT
+      // device, and that change hasn't reached this device yet). A dead
+      // giveaway is that the name typed still matches an existing Family
+      // Member on THIS device's local data, even though it no longer
+      // matches the Owner account here.
+      const staleMemberMatch = DB.members.find(m=>m.name.toLowerCase()===name.toLowerCase());
+      if(staleMemberMatch){
+        showErr('Ye naam is device par abhi bhi "Family Member" list mein hai — matlab is device ne family ka naya (updated) record abhi tak sync nahi kiya. Neeche "☁️ Load My Family\'s Data (Google Drive)" button dabayein aur family ki wahi shared Gmail se sign-in karein, phir dobara isi password se Owner Log In try karein.');
+      } else {
+        showErr('Incorrect name or password.');
+      }
+    }
   } else {
     if(!DB.members.length){ showErr('No family members added yet.'); return; }
     const mid = document.getElementById('loginMember').value;

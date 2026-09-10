@@ -357,10 +357,22 @@ function mergeDB(a, b){
   const newer = aTs>=bTs ? a : b, older = newer===a ? b : a;
 
   out.config = Object.assign({}, defaultDB().config, newer.config||{});
-  // Safety net: never let a merge un-set an already-created Owner account
-  // or an already-locked family Drive email just because the "newer" side
-  // happens to be a device that hasn't set those up yet.
-  if(!out.config.ownerAccount) out.config.ownerAccount = (older.config&&older.config.ownerAccount) || null;
+  // Owner identity (name/password/photo) must win merge on ITS OWN
+  // timestamp, not on which device's whole save happened to be newest.
+  // Reason: a Family-Owner change (e.g. promoting a new Owner) is a
+  // specific, timestamped event — but the OTHER device (the new Owner's
+  // own device, say) can easily rack up a LATER overall save afterwards
+  // just from ordinary activity (marking a daily prayer) before it ever
+  // syncs. Under the old "whole config from the newer whole-DB side"
+  // rule, that later-but-unrelated save would silently overwrite the
+  // promotion and revert the Owner back to the old one. Comparing each
+  // side's ownerAccount.updatedAt directly avoids that.
+  {
+    const aOA = (a.config && a.config.ownerAccount) || null;
+    const bOA = (b.config && b.config.ownerAccount) || null;
+    if(aOA && bOA) out.config.ownerAccount = (aOA.updatedAt||0) >= (bOA.updatedAt||0) ? aOA : bOA;
+    else out.config.ownerAccount = aOA || bOA || null; // safety net: never un-set an already-created Owner
+  }
   if(!out.config.driveAccountEmail) out.config.driveAccountEmail = (older.config&&older.config.driveAccountEmail) || null;
 
   out.tombstones = {
@@ -670,7 +682,7 @@ function doLogin(){
       if(!name || !p1){ showErr('Please enter your name and a password.'); return; }
       if(p1.length<4){ showErr('Password should be at least 4 characters.'); return; }
       if(p1!==p2){ showErr('Passwords do not match.'); return; }
-      DB.config.ownerAccount = {name, password:p1, photo:null};
+      DB.config.ownerAccount = {name, password:p1, photo:null, updatedAt: Date.now()};
       saveDB(); setSession({role:'owner'}); render(); return;
     }
     const name = document.getElementById('loginName').value.trim();
@@ -876,6 +888,7 @@ async function saveOwnerPhoto(input){
   if(!input.files || !input.files[0]) return;
   try{
     DB.config.ownerAccount.photo = await compressImage(input.files[0], 400, 0.72);
+    DB.config.ownerAccount.updatedAt = Date.now();
     saveDB(); render();
   }catch(e){ alert('Tasveer save nahi ho saki: '+e.message); }
 }
@@ -884,7 +897,7 @@ function changeOwnerName(){
   const msg = document.getElementById('ownNameMsg');
   msg.classList.remove('hidden');
   if(!name){ msg.textContent='Please enter a name.'; msg.className='text-sm font-bold text-red-600'; return; }
-  DB.config.ownerAccount.name = name; saveDB();
+  DB.config.ownerAccount.name = name; DB.config.ownerAccount.updatedAt = Date.now(); saveDB();
   msg.textContent='Name updated!'; msg.className='text-sm font-bold text-green-600';
   setTimeout(()=>render(),800);
 }
@@ -898,7 +911,7 @@ function changeOwnerPassword(){
   if(cur!==acc.password){ msg.textContent='Current password is incorrect.'; msg.className='ml-3 text-sm font-bold text-red-600'; return; }
   if(!n1 || n1.length<4){ msg.textContent='New password should be at least 4 characters.'; msg.className='ml-3 text-sm font-bold text-red-600'; return; }
   if(n1!==n2){ msg.textContent='New passwords do not match.'; msg.className='ml-3 text-sm font-bold text-red-600'; return; }
-  acc.password = n1; saveDB();
+  acc.password = n1; acc.updatedAt = Date.now(); saveDB();
   msg.textContent='Password changed!'; msg.className='ml-3 text-sm font-bold text-green-600';
 }
 function deleteOwnerAccount(){

@@ -1265,7 +1265,7 @@ function renderDua(){
   ${card(`
     <h3 class="font-display text-lg mb-2" style="color:var(--emerald-deep)">سورة الفاتحة <span class="text-sm font-sans text-gray-500 font-normal">— Surah Al-Fatiha (1x)</span></h3>
     <p class="arabic-text text-xl leading-loose">
-      بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br><br>
+      بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br>
       الْحَمْدُ لِلَّهِ رَبِّ الْعَٰلَمِينَ ﴿١﴾<br>
       الرَّحْمَٰنِ الرَّحِيمِ ﴿٢﴾<br>
       مَٰلِكِ يَوْمِ الدِّينِ ﴿٣﴾<br>
@@ -1278,7 +1278,7 @@ function renderDua(){
   ${card(`
     <h3 class="font-display text-lg mb-2" style="color:var(--emerald-deep)">سورة الإخلاص <span class="text-sm font-sans text-gray-500 font-normal">— Surah Al-Ikhlas (3x)</span></h3>
     <p class="arabic-text text-xl leading-loose">
-      بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br><br>
+      بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br>
       قُلْ هُوَ اللَّهُ أَحَدٌ ﴿١﴾<br>
       اللَّهُ الصَّمَدُ ﴿٢﴾<br>
       لَمْ يَلِدْ وَلَمْ يُولَدْ ﴿٣﴾<br>
@@ -1288,7 +1288,7 @@ function renderDua(){
   ${card(`
     <h3 class="font-display text-lg mb-2" style="color:var(--emerald-deep)">آية الكرسي <span class="text-sm font-sans text-gray-500 font-normal">— Ayatul Kursi</span></h3>
     <p class="arabic-text text-xl leading-loose">
-      بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br><br>
+      بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br>
       اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ ۚ لَهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ ۗ مَنْ ذَا الَّذِي يَشْفَعُ عِنْدَهُ إِلَّا بِإِذْنِهِ ۚ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ ۖ وَلَا يُحِيطُونَ بِشَيْءٍ مِنْ عِلْمِهِ إِلَّا بِمَا شَاءَ ۚ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ ۖ وَلَا يَئُودُهُ حِفْظُهُمَا ۚ وَهُوَ الْعَلِيُّ الْعَظِيمُ ﴿٢٥٥﴾
     </p>
   `)}`;

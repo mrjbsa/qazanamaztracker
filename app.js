@@ -1265,18 +1265,20 @@ function renderDua(){
   ${card(`
     <h3 class="font-display text-lg mb-2" style="color:var(--emerald-deep)">سورة الفاتحة <span class="text-sm font-sans text-gray-500 font-normal">— Surah Al-Fatiha (1x)</span></h3>
     <p class="arabic-text text-xl leading-loose">
-      بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ ﴿١﴾<br>
-      الْحَمْدُ لِلَّهِ رَبِّ الْعَٰلَمِينَ ﴿٢﴾<br>
-      الرَّحْمَٰنِ الرَّحِيمِ ﴿٣﴾<br>
-      مَٰلِكِ يَوْمِ الدِّينِ ﴿٤﴾<br>
-      إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ ﴿٥﴾<br>
-      اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ ﴿٦﴾<br>
-      صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ ﴿٧﴾
+      بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br><br>
+      الْحَمْدُ لِلَّهِ رَبِّ الْعَٰلَمِينَ ﴿١﴾<br>
+      الرَّحْمَٰنِ الرَّحِيمِ ﴿٢﴾<br>
+      مَٰلِكِ يَوْمِ الدِّينِ ﴿٣﴾<br>
+      إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ ﴿٤﴾<br>
+      اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ ﴿٥﴾<br>
+      صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ ﴿٦﴾<br>
+      غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ ﴿٧﴾
     </p>
   `)}
   ${card(`
     <h3 class="font-display text-lg mb-2" style="color:var(--emerald-deep)">سورة الإخلاص <span class="text-sm font-sans text-gray-500 font-normal">— Surah Al-Ikhlas (3x)</span></h3>
     <p class="arabic-text text-xl leading-loose">
+      بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br><br>
       قُلْ هُوَ اللَّهُ أَحَدٌ ﴿١﴾<br>
       اللَّهُ الصَّمَدُ ﴿٢﴾<br>
       لَمْ يَلِدْ وَلَمْ يُولَدْ ﴿٣﴾<br>
@@ -1286,6 +1288,7 @@ function renderDua(){
   ${card(`
     <h3 class="font-display text-lg mb-2" style="color:var(--emerald-deep)">آية الكرسي <span class="text-sm font-sans text-gray-500 font-normal">— Ayatul Kursi</span></h3>
     <p class="arabic-text text-xl leading-loose">
+      بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br><br>
       اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ ۚ لَهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ ۗ مَنْ ذَا الَّذِي يَشْفَعُ عِنْدَهُ إِلَّا بِإِذْنِهِ ۚ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ ۖ وَلَا يُحِيطُونَ بِشَيْءٍ مِنْ عِلْمِهِ إِلَّا بِمَا شَاءَ ۚ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ ۖ وَلَا يَئُودُهُ حِفْظُهُمَا ۚ وَهُوَ الْعَلِيُّ الْعَظِيمُ ﴿٢٥٥﴾
     </p>
   `)}`;
@@ -1307,7 +1310,7 @@ function renderAbout(){
   return `
   ${card(`
     <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">📩 Contact Us</h2>
-    <p class="text-sm text-gray-600 mb-3">Website mein kisi bhi kisam ka error samne aaye, login mein masla ho, ya aap apni family/organization ke liye bilkul aisi hi (ya nayi) website banwana chahte hon — humein email karein:</p>
+    <p class="text-sm text-gray-600 mb-3">Website mein kisi bhi kisam ka error aaye, yaan aap apni family/organization ke liye bilkul New website banwana chahte hon tu — humein email karein:</p>
     <a href="mailto:mrjbsa.official@outlook.com" class="gold-btn rounded-lg px-5 py-2 font-bold inline-block">✉️ mrjbsa.official@outlook.com</a>
   `)}
   ${card(`

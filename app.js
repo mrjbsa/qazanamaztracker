@@ -576,6 +576,20 @@ function balighAgeFor(gender){
   const b = (DB.config && DB.config.baligh) || {};
   return gender==='female' ? (Number(b.femaleHijriYears)||9) : (Number(b.maleHijriYears)||15);
 }
+/* Marhoom's total lifetime Qaza (Fajr–Isha, per waqt) — same Islamic rule
+   used for a living member's obligation (Baligh age by gender, Hijri
+   years), but run from Baligh all the way to the Wasal (death) date
+   instead of "up to today". The day of Wasal itself is counted (unlike
+   the living-member calc, which stops at "yesterday" because today is
+   still in progress) — a Marhoom's day of death is a day that has fully
+   passed. Returns null if DOB or Wasal date is missing, 0 if the person
+   passed away before reaching Baligh. */
+function marhoomAutoQazaDays(dob, gender, dod){
+  if(!dob || !dod) return null;
+  const balighISO = addHijriYears(dob, balighAgeFor(gender));
+  if(balighISO > dod) return 0;
+  return daysBetweenISO(balighISO, dod) + 1;
+}
 function livingQazaStats(member, asOfISO){
   const p = member && member.profile;
   if(!p || !p.registeredAt) return null;
@@ -635,6 +649,7 @@ function renderLogin(){
       <button onclick="loginConnectAndLoad()" class="gold-btn w-full rounded-lg py-2.5 font-bold">☁️ Load My Family's Data (Google Drive)</button>
       <p class="text-xs text-gray-400 text-center mt-2">Naye phone/computer par pehli baar aaye hain? Apni family ki Gmail se sign-in karke poora record yahan le aayein — phir upar apna naam/password se Log In karein.</p>
       <p id="loginDriveMsg" class="text-xs text-center mt-2 hidden"></p>
+      <p class="text-xs text-gray-400 text-center mt-4 pt-3" style="border-top:1px solid var(--line)">Login ya kisi bhi kisam ke error ka samna ho to email karein: <a href="mailto:mrjbsa.official@outlook.com" class="font-bold" style="color:var(--emerald)">mrjbsa.official@outlook.com</a></p>
     </div>
   </div>`;
   selectRole(CURRENT_ROLE==='member'?'member':'owner');
@@ -948,26 +963,27 @@ function oMarhoom(){
     <div class="grid md:grid-cols-3 gap-3 mb-3">
       <input id="mName" placeholder="Marhoom's Name" value="${editing?esc(editing.name):''}" class="border rounded-lg px-3 py-2">
       <input id="mRelation" placeholder="Relation (e.g. Father, Grandmother)" value="${editing?esc(editing.relation):''}" class="border rounded-lg px-3 py-2">
-      <select id="mGender" class="border rounded-lg px-3 py-2">
+      <select id="mGender" onchange="updateMarhoomAutoTotal()" class="border rounded-lg px-3 py-2">
         <option value="male" ${editing?.gender==='male'?'selected':''}>Male</option>
         <option value="female" ${editing?.gender==='female'?'selected':''}>Female</option>
       </select>
       <div><label class="block text-xs font-bold mb-1 text-gray-500">Date of Birth (Gregorian)</label>
-      <input id="mDob" type="date" value="${editing?editing.dob||'':''}" class="border rounded-lg px-3 py-2 w-full"></div>
+      <input id="mDob" type="date" value="${editing?editing.dob||'':''}" onchange="updateMarhoomAutoTotal()" class="border rounded-lg px-3 py-2 w-full"></div>
       <div><label class="block text-xs font-bold mb-1 text-gray-500">Wasal / Date of Death (Gregorian)</label>
-      <input id="mDod" type="date" value="${editing?editing.dod||'':''}" onchange="document.getElementById('mDodHijri').textContent=this.value?toHijri(this.value):''" class="border rounded-lg px-3 py-2 w-full">
+      <input id="mDod" type="date" value="${editing?editing.dod||'':''}" onchange="document.getElementById('mDodHijri').textContent=this.value?toHijri(this.value):''; updateMarhoomAutoTotal()" class="border rounded-lg px-3 py-2 w-full">
       <span id="mDodHijri" class="text-xs text-gray-400">${editing&&editing.dod?toHijri(editing.dod):''}</span></div>
       <input id="mPhoto" type="file" accept="image/*" class="border rounded-lg px-2 py-2 text-sm self-end">
     </div>
     <p class="text-xs text-gray-400 -mt-2 mb-3">Wasal date Gregorian mein enter karein — Hijri date khud-ba-khud calculate ho kar dono save hongi.</p>
     <h3 class="font-bold mb-2" style="color:var(--emerald)">Qaza Targets (total prayers owed, per prayer)</h3>
     <div class="flex flex-wrap items-end gap-2 mb-3 p-3 rounded-lg" style="background:var(--sand)">
-      <div><label class="block text-xs font-bold mb-1">Missed Years</label>
-      <input id="mEstYears" type="number" min="0" placeholder="e.g. 5" class="border rounded-lg px-3 py-2 w-32"></div>
-      <div><label class="block text-xs font-bold mb-1">+ Missed Days</label>
-      <input id="mEstDays" type="number" min="0" placeholder="e.g. 20" class="border rounded-lg px-3 py-2 w-32"></div>
-      <button onclick="fillTargetsFromDays()" class="emerald-btn rounded-lg px-4 py-2 text-sm font-bold">Auto-Calculate &amp; Fill Fajr–Isha</button>
-      <span class="text-xs text-gray-500 w-full">(1 saal = 365 din · 5 waqt ki Farz Qaza Namaz ke liye)</span>
+      <div class="w-full text-sm font-bold" id="mAutoTotalBox" style="color:var(--emerald-deep)">${editing ? autoTotalText(marhoomAutoQazaDays(editing.dob, editing.gender, editing.dod)) : autoTotalText(null)}</div>
+      <div><label class="block text-xs font-bold mb-1">Ada kiye hue Years</label>
+      <input id="mAdaYears" type="number" min="0" placeholder="e.g. 5" class="border rounded-lg px-3 py-2 w-32"></div>
+      <div><label class="block text-xs font-bold mb-1">+ Ada kiye hue Days</label>
+      <input id="mAdaDays" type="number" min="0" placeholder="e.g. 20" class="border rounded-lg px-3 py-2 w-32"></div>
+      <button onclick="fillTargetsFromDays()" class="emerald-btn rounded-lg px-4 py-2 text-sm font-bold">🧮 Qaza Calculate Karein &amp; Fajr–Isha Bharein</button>
+      <span class="text-xs text-gray-500 w-full">Total Qaza khud-ba-khud Date of Birth se Wasal tak (Baligh ki umar ke hisaab se) calculate hoti hai. Agar waris ko pata ho ke Marhoom ne khud kitni Namaz apni zindagi mein ada ki thi, wo yahan Years/Days mein likhein — wo auto-calculated total mein se minus ho kar baaki (jo waris ne ada karni hai) neeche bhar di jaegi.</span>
     </div>
     <div class="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
       ${PRAYERS.map(p=>`<div><label class="block text-xs font-bold mb-1">${p.label}</label>
@@ -986,11 +1002,32 @@ function oMarhoom(){
     </div>
   `)}`;
 }
+function autoTotalText(days){
+  if(days===null) return 'Total Qaza (auto-calculated): Date of Birth aur Wasal Date, dono enter karein.';
+  if(days===0) return 'Total Qaza (auto-calculated): 0 din — Marhoom Baligh hone se pehle wafaat pa gaye.';
+  const years = Math.floor(days/365), rem = days%365;
+  return `Total Qaza (Baligh se Wasal tak, auto-calculated): ${days} din (~${years} saal, ${rem} din) — har waqt ki Farz Namaz ke liye.`;
+}
+function updateMarhoomAutoTotal(){
+  const box = document.getElementById('mAutoTotalBox');
+  if(!box) return;
+  const dob = document.getElementById('mDob')?.value;
+  const dod = document.getElementById('mDod')?.value;
+  const gender = document.getElementById('mGender')?.value;
+  box.textContent = autoTotalText(marhoomAutoQazaDays(dob, gender, dod));
+}
 function fillTargetsFromDays(){
-  const years = Number(document.getElementById('mEstYears').value)||0;
-  const days = Number(document.getElementById('mEstDays').value)||0;
-  const total = (years*365) + days;
-  PRAYERS.forEach(p=>{ document.getElementById('mTarget_'+p.key).value = total; });
+  const dob = document.getElementById('mDob').value;
+  const dod = document.getElementById('mDod').value;
+  const gender = document.getElementById('mGender').value;
+  const totalDays = marhoomAutoQazaDays(dob, gender, dod);
+  if(totalDays===null){ alert('Pehle Marhoom ki Date of Birth aur Wasal Date, dono enter karein — us ke baad total Qaza auto-calculate ho sakegi.'); return; }
+  const adaYears = Number(document.getElementById('mAdaYears').value)||0;
+  const adaDays = Number(document.getElementById('mAdaDays').value)||0;
+  const adaTotal = (adaYears*365) + adaDays;
+  const remaining = Math.max(0, totalDays - adaTotal);
+  PRAYERS.forEach(p=>{ document.getElementById('mTarget_'+p.key).value = remaining; });
+  updateMarhoomAutoTotal();
 }
 function startEditMarhoom(id){ EDITING_MARHOOM_ID=id; render(); setTimeout(()=>document.getElementById('mName')?.scrollIntoView({behavior:'smooth'}),0); }
 function cancelEditMarhoom(){ EDITING_MARHOOM_ID=null; render(); }
@@ -1229,9 +1266,9 @@ function renderDua(){
     <h3 class="font-display text-lg mb-2" style="color:var(--emerald-deep)">سورة الفاتحة <span class="text-sm font-sans text-gray-500 font-normal">— Surah Al-Fatiha (1x)</span></h3>
     <p class="arabic-text text-xl leading-loose">
       بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ ﴿١﴾<br>
-      الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ ﴿٢﴾<br>
+      الْحَمْدُ لِلَّهِ رَبِّ الْعَٰلَمِينَ ﴿٢﴾<br>
       الرَّحْمَٰنِ الرَّحِيمِ ﴿٣﴾<br>
-      مَالِكِ يَوْمِ الدِّينِ ﴿٤﴾<br>
+      مَٰلِكِ يَوْمِ الدِّينِ ﴿٤﴾<br>
       إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ ﴿٥﴾<br>
       اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ ﴿٦﴾<br>
       صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ ﴿٧﴾
@@ -1268,6 +1305,11 @@ function tributeCard(t){
 }
 function renderAbout(){
   return `
+  ${card(`
+    <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">📩 Contact Us</h2>
+    <p class="text-sm text-gray-600 mb-3">Website mein kisi bhi kisam ka error samne aaye, login mein masla ho, ya aap apni family/organization ke liye bilkul aisi hi (ya nayi) website banwana chahte hon — humein email karein:</p>
+    <a href="mailto:mrjbsa.official@outlook.com" class="gold-btn rounded-lg px-5 py-2 font-bold inline-block">✉️ mrjbsa.official@outlook.com</a>
+  `)}
   ${card(`
     <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">ℹ️ About This Website</h2>
     <p class="text-sm text-gray-600 mb-4">Qaza Namaz Tracker helps families across the world keep track of the missed obligatory prayers of their loved ones — living or passed away — and lets every family member contribute towards completing them together, wherever they are.</p>

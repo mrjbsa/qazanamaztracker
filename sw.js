@@ -17,7 +17,7 @@
    itself* (its HTML/CSS/JS/fonts) load without internet too.
    ------------------------------------------------------------ */
 
-const CACHE_NAME = 'qaza-tracker-v11';
+const CACHE_NAME = 'qaza-tracker-v12';
 
 // Bump CACHE_NAME (e.g. 'qaza-tracker-v7') any time you update app.js /
 // styles.css / index.html, so every device picks up the new version
@@ -38,9 +38,6 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME).then((cache) => {
       return Promise.all(
         PRECACHE_URLS.map((url) => {
-          // 'no-cors' lets us cache cross-origin resources (Tailwind, fonts,
-          // Google's sign-in script) even though we can't read their
-          // response bodies — we can still store and replay them offline.
           const req = new Request(url, { mode: 'no-cors' });
           return fetch(req).then((res) => cache.put(url, res)).catch(() => {});
         })
@@ -66,18 +63,14 @@ self.addEventListener('fetch', (event) => {
     caches.match(event.request).then((cached) => {
       const network = fetch(event.request)
         .then((res) => {
-          // Save a fresh copy for next time (opaque cross-origin responses
-          // have status 0 but type 'opaque' — those are cacheable too).
           if (res && (res.ok || res.type === 'opaque')) {
             const copy = res.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => {});
           }
           return res;
         })
-        .catch(() => cached); // offline and not cached yet — nothing we can do for this one request
+        .catch(() => cached);
 
-      // Serve the cached copy immediately if we have one (fast + works offline);
-      // otherwise wait for the network.
       return cached || network;
     })
   );

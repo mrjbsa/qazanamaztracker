@@ -1067,12 +1067,40 @@ function delMarhoom(id){
 }
 
 /* ---------- Family Members management ---------- */
+function coOwnerCard(){
+  const oa = DB.config.ownerAccount;
+  if(!oa) return '';
+  const coId = oa.coOwnerId || '';
+  const coName = coId ? (DB.members.find(m=>m.id===coId)?.name || null) : null;
+  const options = DB.members.map(m=>`<option value="${m.id}" ${m.id===coId?'selected':''}>${esc(m.name)}${m.relation?' ('+esc(m.relation)+')':''}</option>`).join('');
+  return card(`
+    <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">⭐ Co-Owner</h2>
+    <p class="text-sm text-gray-600 mb-3">Apni zindagi mein hi, family ke kisi ek Member ko <b>Co-Owner</b> muqarrar kar dein. Allah na kare agar aap ka intiqal ho jaye, to sirf yahi muqarrar shuda Co-Owner — apne khud ke Member login se, bagair aap ka password jaane — aap ka wasal darj kar ke aap ko Marhoom section mein shamil kar sakega, aur foran khud-ba-khud naya Family Owner ban jayega. Woh naya Owner phir apna agla Co-Owner khud muqarrar kar sakta hai — is tarah ye silsila hamesha continuously chalta rahega, chahe kitni bhi generations guzar jayein.</p>
+    ${DB.members.length===0 ? `<p class="text-sm text-gray-400">Co-Owner muqarrar karne ke liye, pehle upar se kam az kam ek Family Member add karein.</p>` : `
+    <div class="flex flex-wrap gap-3 items-center">
+      <select id="coOwnerSelect" class="border rounded-lg px-3 py-2">
+        <option value="">— Koi Co-Owner nahi —</option>
+        ${options}
+      </select>
+      <button onclick="setCoOwner(document.getElementById('coOwnerSelect').value)" class="emerald-btn rounded-lg px-4 py-2 font-bold">Save</button>
+    </div>`}
+    <p class="text-sm mt-3" style="color:${coName?'var(--emerald)':'#9ca3af'}">${coName?`✅ Is waqt <b>${esc(coName)}</b> is family ke Co-Owner hain.`:'Abhi koi Co-Owner muqarrar nahi kiya gaya.'}</p>
+  `);
+}
+function setCoOwner(memberId){
+  if(!DB.config.ownerAccount) return;
+  if(memberId && !DB.members.find(m=>m.id===memberId)){ alert('Ye Member nahi mila.'); return; }
+  DB.config.ownerAccount.coOwnerId = memberId || null;
+  DB.config.ownerAccount.updatedAt = Date.now();
+  saveDB(); render();
+}
 function oMembers(){
+  const coId = DB.config.ownerAccount ? DB.config.ownerAccount.coOwnerId : null;
   const rows = DB.members.map(mem=>{
     const totals = DB.marhooms.map(m=>memberContribution(m.id, mem.id).total).reduce((a,b)=>a+b,0);
     return `<tr class="border-b table-row">
       <td class="py-2">${mem.photo?`<img src="${mem.photo}" class="staff-avatar">`:'<span class="text-2xl">👤</span>'}</td>
-      <td>${esc(mem.name)}</td><td>${esc(mem.relation)}</td><td class="font-bold" style="color:var(--emerald)">${totals} prayers</td>
+      <td>${esc(mem.name)}${mem.id===coId?' <span class="text-xs font-bold" style="color:var(--gold)">⭐ Co-Owner</span>':''}</td><td>${esc(mem.relation)}</td><td class="font-bold" style="color:var(--emerald)">${totals} prayers</td>
       <td class="whitespace-nowrap">
         <button onclick="resetMemberPass('${mem.id}')" class="text-sm font-bold mr-2" style="color:var(--emerald)">🔑 Reset Password</button>
         <button onclick="delMember('${mem.id}')" class="text-red-600 text-sm font-bold">🗑️ Remove</button>
@@ -1096,7 +1124,8 @@ function oMembers(){
       <tbody>${rows}</tbody>
     </table>
     </div>
-  `)}`;
+  `)}
+  ${coOwnerCard()}`;
 }
 async function addMember(){
   const name = document.getElementById('memName').value.trim();
@@ -1116,6 +1145,10 @@ function delMember(id){
   if(confirm('Remove this family member? Their logged Qaza contributions stay in the family totals.')){
     DB.members = DB.members.filter(m=>m.id!==id);
     DB.tombstones.members.push({id, deletedAt: Date.now()});
+    if(DB.config.ownerAccount && DB.config.ownerAccount.coOwnerId===id){
+      DB.config.ownerAccount.coOwnerId = null;
+      DB.config.ownerAccount.updatedAt = Date.now();
+    }
     saveDB(); render();
   }
 }
@@ -1816,9 +1849,13 @@ function mMyQaza(){
   `)}
   ${SESSION.role==='owner' ? card(`
     <h2 class="text-lg font-bold mb-2" style="color:var(--danger)">🕊️ Wasal / Intiqal</h2>
-    <p class="text-sm text-gray-600 mb-3">Agar Owner ka intiqal ho jaye, to yahan se unka record (isi tarah, baqi Qaza samet) Marhoom section mein shift kiya ja sakta hai, aur family mein se kisi ek Member ko naya Family Owner bhi bana sakte hain — isi waqt.</p>
-    <button onclick="ownerMarkWasal()" class="rounded-lg px-5 py-2 font-bold text-white" style="background:var(--danger)">🕊️ Owner Ka Wasal Darj Karein</button>
-  `) : ''}`;
+    <p class="text-sm text-gray-600 mb-3">Allah na kare, agar aap ka intiqal ho jaye, to koi bhi khud-ba-khud aap ka record Marhoom section mein nahi bhej sakta — ye sirf aap ke muqarrar kiye hue <b>Co-Owner</b> apne khud ke Member login se kar sakenge, jis ke foran baad wo khud naye Family Owner ban jayenge. Apna Co-Owner "Family Members" tab mein muqarrar karein.</p>
+    <button onclick="ACTIVE_TAB='members';render()" class="rounded-lg px-5 py-2 font-bold" style="background:var(--sand-dark);color:var(--ink)">⭐ Family Members mein Co-Owner Muqarrar Karein</button>
+  `) : (DB.config.ownerAccount && DB.config.ownerAccount.coOwnerId===SESSION.memberId ? card(`
+    <h2 class="text-lg font-bold mb-2" style="color:var(--danger)">🕊️ Wasal / Intiqal</h2>
+    <p class="text-sm text-gray-600 mb-3">Aap is family ke muqarrar shuda <b>⭐ Co-Owner</b> hain. Allah na kare, agar Family Owner (<b>${esc(DB.config.ownerAccount.name)}</b>) ka intiqal ho jaye, to yahan se aap unka record — baqi Qaza samet — Marhoom section mein shift kar sakte hain. Is ke foran baad, aap khud is family ke naye Family Owner ban jayenge.</p>
+    <button onclick="coOwnerMarkOwnerWasal()" class="rounded-lg px-5 py-2 font-bold text-white" style="background:var(--danger)">🕊️ Owner Ka Wasal Darj Karein</button>
+  `) : '')}`;
 }
 function mRegistrationForm(){
   return card(`
@@ -1954,30 +1991,21 @@ function markMemberWasal(memberId){
   saveDB(); render();
   alert(`${member.name} ka record Marhoom section mein shamil ho gaya hai — ab family Waris unki baqi Qaza Namaz ada kar sakte hain. Allah unhein maghfirat farmaye. 🤲`);
 }
-function ownerMarkWasal(){
+function coOwnerMarkOwnerWasal(){
   const oa = DB.config.ownerAccount;
   if(!oa) return;
+  const me = DB.members.find(m=>m.id===SESSION.memberId);
+  if(!me || oa.coOwnerId!==me.id){ alert('Sirf is family ke muqarrar shuda Co-Owner hi ye amal kar sakte hain.'); return; }
   if(!oa.profile || !oa.profile.registeredAt){
-    alert('Pehle "Meri Namaz" mein apna register mukammal karein (Father\u2019s Name, Gender, Date of Birth) — us ke baad hi Wasal par Qaza ka record sahi tarah Marhoom section mein shift ho sakega.');
+    alert('Owner ne apna register mukammal nahi kiya tha ("Meri Namaz" mein Father\u2019s Name, Gender, Date of Birth) — is liye ab unki Qaza ka theek record calculate nahi ho sakta. Kisi aur zariye se pehle ye maloomat mukammal karwayein.');
     return;
   }
-  if(DB.members.length===0){
-    alert('Naya Family Owner banane ke liye kam az kam ek Family Member hona zaroori hai. Pehle "Family Members" tab se kisi ko add karein, phir yahan wapas aayein.');
-    return;
-  }
-  const dod = prompt(`Owner (${oa.name}) ki Wasal / Date of Death darj karein (YYYY-MM-DD):`, todayISO());
+  const dod = prompt(`Family Owner (${oa.name}) ki Wasal / Date of Death darj karein (YYYY-MM-DD):`, todayISO());
   if(dod===null) return;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(dod)){ alert('Sahi format mein tareekh likhein: YYYY-MM-DD'); return; }
   if(dod < oa.profile.dob){ alert('Wasal ki tareekh Date of Birth se pehle nahi ho sakti.'); return; }
 
-  const namesList = DB.members.map((m,i)=>`${i+1}. ${m.name}${m.relation?' ('+m.relation+')':''}`).join('\n');
-  const choice = prompt(`Naya Family Owner kaun banega? Neeche list mein se number likh kar bhejein:\n\n${namesList}`);
-  if(choice===null) return;
-  const idx = Number(choice) - 1;
-  if(!(idx>=0 && idx<DB.members.length)){ alert('Sahi number darj nahi hua — koi tabdeeli nahi ki gayi.'); return; }
-  const successor = DB.members[idx];
-
-  if(!confirm(`Tasdeeq karein:\n\n• ${oa.name} ka record Marhoom section mein shamil ho jayega.\n• "${successor.name}" ab naye Family Owner ban jayenge (apne isi maujooda password se "Owner" tab se login karke).\n\nYe amal wapis nahi ho sakta. Jari rakhein?`)) return;
+  if(!confirm(`Tasdeeq karein:\n\n• ${oa.name} (Owner) ka record Marhoom section mein shamil ho jayega.\n• Aap ("${me.name}") is family ke ⭐ muqarrar shuda Co-Owner hone ki hasiyat se, ab foran naye Family Owner ban jayenge.\n\nYe amal wapis nahi ho sakta. Jari rakhein?`)) return;
 
   const s = livingQazaStats(oa, dod);
   const targets = {}; PRAYERS.forEach(p=>{ targets[p.key] = s.perWaqt[p.key].owed; });
@@ -1994,20 +2022,23 @@ function ownerMarkWasal(){
   DB.progress[newId] = { owner: {} };
   PRAYERS.forEach(p=>{ DB.progress[newId].owner[p.key] = Math.min(s.perWaqt[p.key].ada, s.perWaqt[p.key].owed); });
 
-  // Promote the chosen Member into the Owner slot — they keep their own
+  // Promote the Co-Owner into the Owner slot — they keep their own
   // name/password/photo and (importantly) their own personal Qaza
   // self-tracking carries over uninterrupted, now living under
-  // DB.config.ownerAccount instead of DB.members.
-  DB.members = DB.members.filter(m=>m.id!==successor.id);
-  DB.tombstones.members.push({id:successor.id, deletedAt:now});
+  // DB.config.ownerAccount instead of DB.members. coOwnerId resets to
+  // null so the new Owner picks their own successor when ready.
+  DB.members = DB.members.filter(m=>m.id!==me.id);
+  DB.tombstones.members.push({id:me.id, deletedAt:now});
   DB.config.ownerAccount = {
-    name: successor.name, password: successor.password, photo: successor.photo||null,
-    profile: successor.profile||null, dailyMarks: successor.dailyMarks||{}, qazaAda: successor.qazaAda||emptyCounts(),
+    name: me.name, password: me.password, photo: me.photo||null,
+    profile: me.profile||null, dailyMarks: me.dailyMarks||{}, qazaAda: me.qazaAda||emptyCounts(),
+    coOwnerId: null,
     updatedAt: now
   };
-  ACTIVE_TAB = null; // this session's tabs/state belonged to the old Owner identity
+  ACTIVE_TAB = null; // this session's tabs/state belonged to the old identity
+  setSession({role:'owner'}); // this same login moves straight into the Owner seat — no re-login needed
   saveDB(); render();
-  alert(`${oa.name} ka record Marhoom section mein shamil ho gaya — Allah unhein maghfirat farmaye. 🤲\n\n"${successor.name}" ab naye Family Owner hain. Wo agli martaba "Owner" tab se apne usi (purane Member wale) password se login karein.`);
+  alert(`${oa.name} ka record Marhoom section mein shamil ho gaya — Allah unhein maghfirat farmaye. 🤲\n\nAap ab is family ke naye Family Owner hain. Jab suhoolat ho, "Family Members" tab se apna agla Co-Owner muqarrar kar dein, taake ye silsila hamesha continuously chalta rahe.`);
 }
 
 /* ============================================================

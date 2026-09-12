@@ -1076,7 +1076,7 @@ function coOwnerCard(){
   return card(`
     <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">⭐ Co-Owner</h2>
     <p class="text-sm text-gray-600 mb-3">Apni zindagi mein hi, family ke kisi ek Member ko <b>Co-Owner</b> muqarrar kar dein. Allah na kare agar aap ka intiqal ho jaye, to sirf yahi muqarrar shuda Co-Owner — apne khud ke Member login se, bagair aap ka password jaane — aap ka wasal darj kar ke aap ko Marhoom section mein shamil kar sakega, aur foran khud-ba-khud naya Family Owner ban jayega. Woh naya Owner phir apna agla Co-Owner khud muqarrar kar sakta hai — is tarah ye silsila hamesha continuously chalta rahega, chahe kitni bhi generations guzar jayein.</p>
-    ${DB.members.length===0 ? `<p class="text-sm text-gray-400">Co-Owner muqarrar karne ke liye, pehle upar se kam az kam ek Family Member add karein.</p>` : `
+    ${DB.members.length===0 ? `<p class="text-sm text-gray-400">Co-Owner muqarrar karne ke liye, pehle "Family Members" tab se kam az kam ek Family Member add karein.</p>` : `
     <div class="flex flex-wrap gap-3 items-center">
       <select id="coOwnerSelect" class="border rounded-lg px-3 py-2">
         <option value="">— Koi Co-Owner nahi —</option>
@@ -1124,8 +1124,7 @@ function oMembers(){
       <tbody>${rows}</tbody>
     </table>
     </div>
-  `)}
-  ${coOwnerCard()}`;
+  `)}`;
 }
 async function addMember(){
   const name = document.getElementById('memName').value.trim();
@@ -1847,11 +1846,13 @@ function mMyQaza(){
       }).join('')}
     </div>
   `)}
-  ${SESSION.role==='owner' ? card(`
+  ${SESSION.role==='owner' ? `
+  ${card(`
     <h2 class="text-lg font-bold mb-2" style="color:var(--danger)">🕊️ Wasal / Intiqal</h2>
-    <p class="text-sm text-gray-600 mb-3">Allah na kare, agar aap ka intiqal ho jaye, to koi bhi khud-ba-khud aap ka record Marhoom section mein nahi bhej sakta — ye sirf aap ke muqarrar kiye hue <b>Co-Owner</b> apne khud ke Member login se kar sakenge, jis ke foran baad wo khud naye Family Owner ban jayenge. Apna Co-Owner "Family Members" tab mein muqarrar karein.</p>
-    <button onclick="ACTIVE_TAB='members';render()" class="rounded-lg px-5 py-2 font-bold" style="background:var(--sand-dark);color:var(--ink)">⭐ Family Members mein Co-Owner Muqarrar Karein</button>
-  `) : (DB.config.ownerAccount && DB.config.ownerAccount.coOwnerId===SESSION.memberId ? card(`
+    <p class="text-sm text-gray-600 mb-3">Allah na kare, agar aap ka intiqal ho jaye, to koi bhi khud-ba-khud aap ka record Marhoom section mein nahi bhej sakta — ye sirf neeche muqarrar kiye hue <b>Co-Owner</b> apne khud ke Member login se kar sakenge, jis ke foran baad wo khud naye Family Owner ban jayenge.</p>
+  `)}
+  ${coOwnerCard()}
+  ` : (DB.config.ownerAccount && DB.config.ownerAccount.coOwnerId===SESSION.memberId ? card(`
     <h2 class="text-lg font-bold mb-2" style="color:var(--danger)">🕊️ Wasal / Intiqal</h2>
     <p class="text-sm text-gray-600 mb-3">Aap is family ke muqarrar shuda <b>⭐ Co-Owner</b> hain. Allah na kare, agar Family Owner (<b>${esc(DB.config.ownerAccount.name)}</b>) ka intiqal ho jaye, to yahan se aap unka record — baqi Qaza samet — Marhoom section mein shift kar sakte hain. Is ke foran baad, aap khud is family ke naye Family Owner ban jayenge.</p>
     <button onclick="coOwnerMarkOwnerWasal()" class="rounded-lg px-5 py-2 font-bold text-white" style="background:var(--danger)">🕊️ Owner Ka Wasal Darj Karein</button>
@@ -1929,31 +1930,38 @@ function incLivingQaza(waqtKey, delta){
   saveDB(); render();
 }
 function renderLivingMembers(isOwner){
-  const rows = DB.members.map(mem=>{
+  const oa = DB.config.ownerAccount || {};
+  const ownerRow = {
+    id:'owner', name: oa.name||'Family Owner', photo: oa.photo||null,
+    profile: oa.profile, dailyMarks: oa.dailyMarks, qazaAda: oa.qazaAda, isOwnerRow:true
+  };
+  const people = [ownerRow, ...DB.members];
+  const rows = people.map(mem=>{
+    const label = mem.isOwnerRow ? ` <span class="text-xs font-bold" style="color:var(--gold)">👑 Owner</span>` : '';
     if(!mem.profile || !mem.profile.registeredAt){
       return `<tr class="border-b table-row">
         <td class="py-2">${mem.photo?`<img src="${mem.photo}" class="staff-avatar">`:'<span class="text-2xl">👤</span>'}</td>
-        <td>${esc(mem.name)}</td><td colspan="4" class="text-gray-400 text-sm">Abhi register nahi hua</td>
+        <td>${esc(mem.name)}${label}</td><td colspan="4" class="text-gray-400 text-sm">Abhi register nahi hua</td>
         <td></td>
       </tr>`;
     }
     const s = livingQazaStats(mem);
     return `<tr class="border-b table-row">
       <td class="py-2">${mem.photo?`<img src="${mem.photo}" class="staff-avatar">`:'<span class="text-2xl">👤</span>'}</td>
-      <td>${esc(mem.name)}</td>
+      <td>${esc(mem.name)}${label}</td>
       <td class="text-xs text-gray-500">${esc(mem.profile.fatherName||'')}</td>
       <td class="text-xs text-gray-500">${mem.profile.gender==='female'?'Female':'Male'}</td>
       <td class="text-xs text-gray-500">${esc(mem.profile.dob||'')}<br><span class="text-gray-400">Baligh: ${esc(s.balighISO)}</span></td>
       <td class="font-bold" style="color:${s.totalRemaining>0?'var(--danger)':'var(--emerald)'}">${s.isBaligh? s.totalRemaining+' baqi' : 'Abhi Baligh nahi'}</td>
       <td class="whitespace-nowrap">
-        ${isOwner?`<button onclick="markMemberWasal('${mem.id}')" title="Wasal Date Add Karein" class="text-red-600 text-sm font-bold">🕊️ Wasal</button>`:''}
+        ${(isOwner && !mem.isOwnerRow)?`<button onclick="markMemberWasal('${mem.id}')" title="Wasal Date Add Karein" class="text-red-600 text-sm font-bold">🕊️ Wasal</button>`:''}
       </td>
     </tr>`;
   }).join('') || `<tr><td colspan="7" class="text-center text-gray-400 py-4">Koi Family Member nahi.</td></tr>`;
   return `
   ${card(`
     <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">🧍 Zinda Family Members</h2>
-    <p class="text-sm text-gray-500 mb-4">${isOwner? 'Har member ki daily Namaz aur baqi Qaza ka record — jab koi wafaat pa jaye, unke naam ke saamne "Wasal" dabayen; unka record khud Marhoom section mein chala jayega.' : 'Har registered member ki baqi Qaza sab ko yahan nazar aati hai.'}</p>
+    <p class="text-sm text-gray-500 mb-4">${isOwner? 'Har member ki daily Namaz aur baqi Qaza ka record — jab koi wafaat pa jaye, unke naam ke saamne "Wasal" dabayen; unka record khud Marhoom section mein chala jayega. (Owner ka wasal sirf muqarrar shuda Co-Owner apne "Meri Namaz" tab se darj kar sakte hain.)' : 'Family Owner samet, har registered member ki baqi Qaza sab ko yahan nazar aati hai.'}</p>
     <div class="overflow-x-auto">
     <table class="w-full text-sm">
       <thead><tr class="text-left border-b"><th class="py-2">Photo</th><th>Naam</th><th>Father's Name</th><th>Gender</th><th>DOB / Baligh</th><th>Baqi Qaza</th><th>${isOwner?'Action':''}</th></tr></thead>

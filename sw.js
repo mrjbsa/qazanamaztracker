@@ -17,7 +17,7 @@
    itself* (its HTML/CSS/JS/fonts) load without internet too.
    ------------------------------------------------------------ */
 
-const CACHE_NAME = 'qaza-tracker-v13';
+const CACHE_NAME = 'qaza-tracker-v15';
 
 // Bump CACHE_NAME (e.g. 'qaza-tracker-v7') any time you update app.js /
 // styles.css / index.html, so every device picks up the new version
@@ -60,7 +60,16 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    // IMPORTANT: { ignoreSearch: true } — match a cached file by its path
+    // only, ignoring the "?v=.." cache-busting query string. Without this,
+    // every time the app is updated (the query string changes), the exact
+    // new URL isn't in the cache yet, there's no match, and — if the
+    // device happens to be offline right at that moment — the site fails
+    // to load entirely instead of falling back to the last cached copy.
+    // With this, offline loading keeps working across every future
+    // update too, while the background fetch below still keeps quietly
+    // refreshing the cache to the newest version whenever online.
+    caches.match(event.request, { ignoreSearch: true }).then((cached) => {
       const network = fetch(event.request)
         .then((res) => {
           if (res && (res.ok || res.type === 'opaque')) {

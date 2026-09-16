@@ -502,7 +502,7 @@ function compressImage(file, maxDim, quality){
 /* ---------------------------- SESSION ---------------------------- */
 let SESSION = JSON.parse(sessionStorage.getItem('qaza_session')||'null');
 function setSession(s){ SESSION=s; sessionStorage.setItem('qaza_session', JSON.stringify(s)); }
-function logout(){ SESSION=null; sessionStorage.removeItem('qaza_session'); ACTIVE_TAB=null; render(); }
+function logout(){ SESSION=null; sessionStorage.removeItem('qaza_session'); ACTIVE_TAB=null; EDITING_MARHOOM_ID=null; EDITING_MEMBER_ID=null; EDITING_SELF_PROFILE=false; render(); }
 let ACTIVE_TAB = null;
 let CURRENT_ROLE = 'owner';
 
@@ -627,6 +627,26 @@ function livingQazaStats(member, asOfISO){
 /* ============================================================
    LOGIN
    ============================================================ */
+// Placeholder — replace with your real YouTube video ID once it's uploaded
+// (the part of the URL after "watch?v="). Everything else works as-is.
+const TUTORIAL_VIDEO_ID = 'jNQXAC9IVRw';
+function toggleTutorialVideo(show){
+  const el = document.getElementById('tutorialVideoModal');
+  if(!el) return;
+  if(show){
+    el.innerHTML = `
+      <div class="video-modal-box" onclick="event.stopPropagation()">
+        <button class="video-modal-close" onclick="toggleTutorialVideo(false)">✕</button>
+        <div class="video-modal-aspect">
+          <iframe src="https://www.youtube.com/embed/${TUTORIAL_VIDEO_ID}?rel=0" title="Website Kaise Use Karein" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+        </div>
+      </div>`;
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+    el.innerHTML = ''; // stops playback the moment it's closed
+  }
+}
 function renderLogin(){
   const ownerExists = !!(DB.config.ownerAccount && DB.config.ownerAccount.name && DB.config.ownerAccount.password);
   document.getElementById('app').innerHTML = `
@@ -638,6 +658,7 @@ function renderLogin(){
       <h1 class="arabic-text text-2xl text-center mb-1" style="color:var(--emerald-deep)">إِنَّا لِلَّهِ وَإِنَّا إِلَيْهِ رَاجِعُونَ</h1>
       <p class="text-center text-xs text-gray-400 mb-1">Inna Lillahi Wa Inna Ilayhi Raji'un</p>
       <p class="text-center text-sm text-gray-500 mb-5">${esc(DB.config.familyName)} · Qaza Namaz Tracker</p>
+      <button onclick="toggleTutorialVideo(true)" class="w-full rounded-lg py-2.5 font-bold mb-5 flex items-center justify-center gap-2" style="background:var(--sand-dark);color:var(--ink)">▶️ Video Dekhein: Website Kaise Use Karein</button>
       <div class="flex gap-2 mb-5">
         <div class="role-tab active" data-role="owner" onclick="selectRole('owner')">Family Owner</div>
         <div class="role-tab" data-role="member" onclick="selectRole('member')">Family Member</div>
@@ -651,6 +672,7 @@ function renderLogin(){
       <p id="loginDriveMsg" class="text-xs text-center mt-2 hidden"></p>
       <p class="text-xs text-gray-400 text-center mt-4 pt-3" style="border-top:1px solid var(--line)">Login ya kisi bhi kisam ke error ka samna ho to email karein: <a href="mailto:mrjbsa.official@outlook.com" class="font-bold" style="color:var(--emerald)">mrjbsa.official@outlook.com</a></p>
     </div>
+    <div id="tutorialVideoModal" class="video-modal-overlay hidden" onclick="toggleTutorialVideo(false)"></div>
   </div>`;
   selectRole(CURRENT_ROLE==='member'?'member':'owner');
 }
@@ -940,6 +962,8 @@ function deleteOwnerAccount(){
 
 /* ---------- Marhoom management ---------- */
 let EDITING_MARHOOM_ID = null;
+let EDITING_MEMBER_ID = null;
+let EDITING_SELF_PROFILE = false;
 function oMarhoom(){
   const editing = EDITING_MARHOOM_ID ? DB.marhooms.find(m=>m.id===EDITING_MARHOOM_ID) : null;
   const rows = DB.marhooms.map(m=>{
@@ -1096,12 +1120,14 @@ function setCoOwner(memberId){
 }
 function oMembers(){
   const coId = DB.config.ownerAccount ? DB.config.ownerAccount.coOwnerId : null;
+  const editingMem = EDITING_MEMBER_ID ? DB.members.find(m=>m.id===EDITING_MEMBER_ID) : null;
   const rows = DB.members.map(mem=>{
     const totals = DB.marhooms.map(m=>memberContribution(m.id, mem.id).total).reduce((a,b)=>a+b,0);
     return `<tr class="border-b table-row">
       <td class="py-2">${mem.photo?`<img src="${mem.photo}" class="staff-avatar">`:'<span class="text-2xl">👤</span>'}</td>
       <td>${esc(mem.name)}${mem.id===coId?' <span class="text-xs font-bold" style="color:var(--gold)">⭐ Co-Owner</span>':''}</td><td>${esc(mem.relation)}</td><td class="font-bold" style="color:var(--emerald)">${totals} prayers</td>
       <td class="whitespace-nowrap">
+        <button onclick="startEditMember('${mem.id}')" class="text-sm font-bold mr-2" style="color:var(--gold)">✏️ Edit</button>
         <button onclick="resetMemberPass('${mem.id}')" class="text-sm font-bold mr-2" style="color:var(--emerald)">🔑 Reset Password</button>
         <button onclick="delMember('${mem.id}')" class="text-red-600 text-sm font-bold">🗑️ Remove</button>
       </td>
@@ -1110,13 +1136,16 @@ function oMembers(){
   return `
   ${card(`
     <h2 class="text-xl font-bold mb-4" style="color:var(--emerald-deep)">👨‍👩‍👧‍👦 Family Members</h2>
-    <p class="text-sm text-gray-500 mb-3">Set a login password for each family member — they'll use their name + this password to log in. Photo is optional and shows up in the Family Directory.</p>
+    <p class="text-sm text-gray-500 mb-3">${editingMem ? `<b style="color:var(--gold)">✏️ Editing ${esc(editingMem.name)}</b> — naam, relation ya photo badal kar "Update Member" dabayein. Password badalne ke liye "🔑 Reset Password" istemal karein.` : `Set a login password for each family member — they'll use their name + this password to log in. Photo is optional and shows up in the Family Directory.`}</p>
     <div class="grid md:grid-cols-5 gap-3 mb-4">
-      <input id="memName" placeholder="Member Name" class="border rounded-lg px-3 py-2">
-      <input id="memRelation" placeholder="Relation (e.g. Son, Daughter)" class="border rounded-lg px-3 py-2">
-      <input id="memPassword" type="text" placeholder="Set Login Password" class="border rounded-lg px-3 py-2">
+      <input id="memName" placeholder="Member Name" value="${editingMem?esc(editingMem.name):''}" class="border rounded-lg px-3 py-2">
+      <input id="memRelation" placeholder="Relation (e.g. Son, Daughter)" value="${editingMem?esc(editingMem.relation):''}" class="border rounded-lg px-3 py-2">
+      ${editingMem ? `<div class="text-xs text-gray-400 flex items-center px-1">Password: "🔑 Reset Password" button use karein</div>` : `<input id="memPassword" type="text" placeholder="Set Login Password" class="border rounded-lg px-3 py-2">`}
       <input id="memPhoto" type="file" accept="image/*" class="border rounded-lg px-2 py-2 text-sm">
-      <button onclick="addMember()" class="emerald-btn rounded-lg px-3 py-2 font-bold">+ Add Member</button>
+      <div class="flex gap-2">
+        <button onclick="${editingMem?'saveEditMember()':'addMember()'}" class="emerald-btn rounded-lg px-3 py-2 font-bold flex-1">${editingMem?'💾 Update Member':'+ Add Member'}</button>
+        ${editingMem?`<button onclick="cancelEditMember()" class="bg-gray-200 rounded-lg px-3 py-2 font-bold">✕</button>`:''}
+      </div>
     </div>
     <div class="overflow-x-auto">
     <table class="w-full text-sm">
@@ -1140,6 +1169,31 @@ async function addMember(){
   DB.members.push({id:uid(), name, relation, password, photo:photo||null, updatedAt: Date.now()});
   saveDB(); render();
 }
+function startEditMember(id){
+  EDITING_MEMBER_ID = id;
+  render();
+}
+function cancelEditMember(){
+  EDITING_MEMBER_ID = null;
+  render();
+}
+async function saveEditMember(){
+  const mem = DB.members.find(m=>m.id===EDITING_MEMBER_ID);
+  if(!mem){ EDITING_MEMBER_ID=null; render(); return; }
+  const name = document.getElementById('memName').value.trim();
+  const relation = document.getElementById('memRelation').value.trim();
+  const photoInput = document.getElementById('memPhoto');
+  if(!name){ alert('Please enter the member\u2019s name.'); return; }
+  let photo = null;
+  try{
+    if(photoInput.files && photoInput.files[0]) photo = await compressImage(photoInput.files[0], 400, 0.72);
+  }catch(e){ alert('Tasveer process nahi ho saki — purani tasveer hi rakhi ja rahi hai.'); }
+  mem.name = name; mem.relation = relation;
+  if(photo) mem.photo = photo;
+  mem.updatedAt = Date.now();
+  EDITING_MEMBER_ID = null;
+  saveDB(); render();
+}
 function delMember(id){
   if(confirm('Remove this family member? Their logged Qaza contributions stay in the family totals.')){
     DB.members = DB.members.filter(m=>m.id!==id);
@@ -1148,6 +1202,7 @@ function delMember(id){
       DB.config.ownerAccount.coOwnerId = null;
       DB.config.ownerAccount.updatedAt = Date.now();
     }
+    if(EDITING_MEMBER_ID===id) EDITING_MEMBER_ID = null;
     saveDB(); render();
   }
 }
@@ -1803,8 +1858,24 @@ function getSelfTrackRecord(){
 }
 function mMyQaza(){
   const record = getSelfTrackRecord();
-  if(!record) return card(`<p class="text-gray-500">Record nahi mila.</p>`);
-  if(!record.profile || !record.profile.registeredAt) return mRegistrationForm();
+  // The ability to set/change a Co-Owner (Owner) or act on a Co-Owner's
+  // succession button (designated Member) must NEVER depend on whether
+  // this person has finished their own personal prayer-registration or
+  // reached Baaligh age — it's a family-management decision, not part of
+  // personal Namaz tracking. So it's computed up front and attached to
+  // EVERY possible return path below, instead of only being reachable
+  // from the final "fully set up" path at the bottom (which is what was
+  // silently hiding it whenever registration wasn't complete yet).
+  const successionBlock = SESSION.role==='owner'
+    ? coOwnerCard()
+    : (DB.config.ownerAccount && DB.config.ownerAccount.coOwnerId===SESSION.memberId ? card(`
+        <h2 class="text-lg font-bold mb-2" style="color:var(--danger)">🕊️ Wasal / Intiqal</h2>
+        <p class="text-sm text-gray-600 mb-3">Aap is family ke muqarrar shuda <b>⭐ Co-Owner</b> hain. Allah na kare, agar Family Owner (<b>${esc(DB.config.ownerAccount.name)}</b>) ka intiqal ho jaye, to yahan se aap unka record — baqi Qaza samet — Marhoom section mein shift kar sakte hain. Is ke foran baad, aap khud is family ke naye Family Owner ban jayenge.</p>
+        <button onclick="coOwnerMarkOwnerWasal()" class="rounded-lg px-5 py-2 font-bold text-white" style="background:var(--danger)">🕊️ Owner Ka Wasal Darj Karein</button>
+      `) : '');
+  if(!record) return card(`<p class="text-gray-500">Record nahi mila.</p>`) + successionBlock;
+  if(!record.profile || !record.profile.registeredAt) return mRegistrationForm() + successionBlock;
+  if(EDITING_SELF_PROFILE) return mEditProfileForm(record) + successionBlock;
   const s = livingQazaStats(record);
   const today = todayISO();
   const todayMarks = (record.dailyMarks && record.dailyMarks[today]) || {};
@@ -1813,7 +1884,8 @@ function mMyQaza(){
       <h2 class="text-xl font-bold mb-3" style="color:var(--emerald-deep)">🙏 Meri Namaz</h2>
       <p class="text-sm text-gray-600">Aap ki Baligh (Namaz Wajib hone ki) tareekh: <b>${esc(s.balighISO)}</b> (${esc(toHijri(s.balighISO))}).</p>
       <p class="text-sm text-gray-500 mt-2">Is tareekh tak pohanchne ke baad, yahan aap ki roz ki Namaz aur Qaza ka hisaab khud shuru ho jayega.</p>
-    `);
+      <button onclick="startEditSelfProfile()" class="text-sm font-bold mt-3" style="color:var(--gold)">✏️ Father's Name / Gender / DOB Edit Karein</button>
+    `) + successionBlock;
   }
   return `
   ${card(`
@@ -1829,7 +1901,10 @@ function mMyQaza(){
     </div>
   `)}
   ${card(`
-    <h2 class="text-xl font-bold mb-1" style="color:var(--emerald-deep)">📿 Meri Qaza Namaz</h2>
+    <div class="flex justify-between items-start mb-1">
+      <h2 class="text-xl font-bold" style="color:var(--emerald-deep)">📿 Meri Qaza Namaz</h2>
+      <button onclick="startEditSelfProfile()" class="text-xs font-bold whitespace-nowrap" style="color:var(--gold)">✏️ Details Edit Karein</button>
+    </div>
     <p class="text-sm text-gray-500 mb-4">Kul baqi Qaza: <b style="color:var(--emerald)">${s.totalRemaining}</b> (${s.totalOwed} mein se ${s.totalAda} ada ki ja chuki hai)</p>
     <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
       ${PRAYERS.map(p=>{
@@ -1846,17 +1921,52 @@ function mMyQaza(){
       }).join('')}
     </div>
   `)}
-  ${SESSION.role==='owner' ? `
-  ${card(`
-    <h2 class="text-lg font-bold mb-2" style="color:var(--danger)">🕊️ Wasal / Intiqal</h2>
-    <p class="text-sm text-gray-600 mb-3">Allah na kare, agar aap ka intiqal ho jaye, to koi bhi khud-ba-khud aap ka record Marhoom section mein nahi bhej sakta — ye sirf neeche muqarrar kiye hue <b>Co-Owner</b> apne khud ke Member login se kar sakenge, jis ke foran baad wo khud naye Family Owner ban jayenge.</p>
-  `)}
-  ${coOwnerCard()}
-  ` : (DB.config.ownerAccount && DB.config.ownerAccount.coOwnerId===SESSION.memberId ? card(`
-    <h2 class="text-lg font-bold mb-2" style="color:var(--danger)">🕊️ Wasal / Intiqal</h2>
-    <p class="text-sm text-gray-600 mb-3">Aap is family ke muqarrar shuda <b>⭐ Co-Owner</b> hain. Allah na kare, agar Family Owner (<b>${esc(DB.config.ownerAccount.name)}</b>) ka intiqal ho jaye, to yahan se aap unka record — baqi Qaza samet — Marhoom section mein shift kar sakte hain. Is ke foran baad, aap khud is family ke naye Family Owner ban jayenge.</p>
-    <button onclick="coOwnerMarkOwnerWasal()" class="rounded-lg px-5 py-2 font-bold text-white" style="background:var(--danger)">🕊️ Owner Ka Wasal Darj Karein</button>
-  `) : '')}`;
+  ${successionBlock}`;
+}
+function mEditProfileForm(record){
+  const p = record.profile;
+  return card(`
+    <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">✏️ Apni Details Edit Karein</h2>
+    <p class="text-sm text-gray-600 mb-4">Agar Father's Name, Gender ya Date of Birth ghalat darj ho gayi thi, to yahan se theek kar sakte hain. Aap ki roz ki mark ki hui Namazein aur ab tak ki Qaza Ada Ki counts is se nahi badlengi.</p>
+    <div class="grid md:grid-cols-2 gap-3 mb-4">
+      <div><label class="block text-sm font-bold mb-1">Father's Name</label>
+      <input id="editFatherName" type="text" value="${esc(p.fatherName||'')}" class="w-full border rounded-lg px-3 py-2"></div>
+      <div><label class="block text-sm font-bold mb-1">Gender</label>
+      <select id="editGender" class="w-full border rounded-lg px-3 py-2">
+        <option value="male" ${p.gender==='male'?'selected':''}>Male</option>
+        <option value="female" ${p.gender==='female'?'selected':''}>Female</option>
+      </select></div>
+      <div><label class="block text-sm font-bold mb-1">Date of Birth (Gregorian)</label>
+      <input id="editDob" type="date" value="${esc(p.dob||'')}" class="w-full border rounded-lg px-3 py-2"></div>
+    </div>
+    <div class="flex gap-2">
+      <button onclick="saveEditSelfProfile()" class="emerald-btn rounded-lg px-5 py-2 font-bold">💾 Save</button>
+      <button onclick="cancelEditSelfProfile()" class="bg-gray-200 rounded-lg px-5 py-2 font-bold">Cancel</button>
+    </div>
+  `);
+}
+function startEditSelfProfile(){ EDITING_SELF_PROFILE = true; render(); }
+function cancelEditSelfProfile(){ EDITING_SELF_PROFILE = false; render(); }
+function saveEditSelfProfile(){
+  const record = getSelfTrackRecord();
+  if(!record || !record.profile) return;
+  const fatherName = document.getElementById('editFatherName').value.trim();
+  const gender = document.getElementById('editGender').value;
+  const dob = document.getElementById('editDob').value;
+  if(!fatherName){ alert('Father\u2019s Name likhein.'); return; }
+  if(!dob){ alert('Date of Birth select karein.'); return; }
+  if(dob > todayISO()){ alert('Date of Birth aaj se pehle ki honi chahiye.'); return; }
+  // Re-derive Baaligh date from the corrected DOB/Gender. The "already
+  // prayed before registering" baseline (startingQaza) stays exactly as
+  // originally entered — this is a correction tool for typos, not a full
+  // re-registration, so daily marks and Qaza-Ada counts are untouched.
+  record.profile.fatherName = fatherName;
+  record.profile.gender = gender;
+  record.profile.dob = dob;
+  record.profile.balighISO = addHijriYears(dob, balighAgeFor(gender));
+  record.updatedAt = Date.now();
+  EDITING_SELF_PROFILE = false;
+  saveDB(); render();
 }
 function mRegistrationForm(){
   return card(`

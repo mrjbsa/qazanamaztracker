@@ -658,7 +658,6 @@ function renderLogin(){
       <h1 class="arabic-text text-2xl text-center mb-1" style="color:var(--emerald-deep)">إِنَّا لِلَّهِ وَإِنَّا إِلَيْهِ رَاجِعُونَ</h1>
       <p class="text-center text-xs text-gray-400 mb-1">Inna Lillahi Wa Inna Ilayhi Raji'un</p>
       <p class="text-center text-sm text-gray-500 mb-5">${esc(DB.config.familyName)} · Qaza Namaz Tracker</p>
-      <button onclick="toggleTutorialVideo(true)" class="w-full rounded-lg py-2.5 font-bold mb-5 flex items-center justify-center gap-2" style="background:var(--sand-dark);color:var(--ink)">▶️ Video Dekhein: Website Kaise Use Karein</button>
       <div class="flex gap-2 mb-5">
         <div class="role-tab active" data-role="owner" onclick="selectRole('owner')">Family Owner</div>
         <div class="role-tab" data-role="member" onclick="selectRole('member')">Family Member</div>
@@ -666,6 +665,10 @@ function renderLogin(){
       <div id="loginFields"></div>
       <div id="loginErr" class="text-red-600 text-sm font-semibold mt-3 hidden"></div>
       <button onclick="doLogin()" class="emerald-btn w-full rounded-lg py-2.5 font-bold mt-5">${ownerExists?'Log In':'Continue'}</button>
+      <button onclick="toggleTutorialVideo(true)" class="youtube-btn w-full rounded-lg py-2.5 font-bold mt-3">
+        <svg width="24" height="17" viewBox="0 0 28 20" class="yt-icon"><rect width="28" height="20" rx="6" fill="#fff"/><path d="M11 6L20 10L11 14V6Z" fill="#FF0000"/></svg>
+        <span>Video Dekhein — Website Kaise Use Karein</span>
+      </button>
       <div class="text-center my-4 text-xs text-gray-400">— OR —</div>
       <button onclick="loginConnectAndLoad()" class="gold-btn w-full rounded-lg py-2.5 font-bold">☁️ Load My Family's Data (Google Drive)</button>
       <p class="text-xs text-gray-400 text-center mt-2">Naye phone/computer par pehli baar aaye hain? Apni family ki Gmail se sign-in karke poora record yahan le aayein — phir upar apna naam/password se Log In karein.</p>

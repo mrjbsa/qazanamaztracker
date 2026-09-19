@@ -68,7 +68,7 @@
   .emerald-btn:active{ transform:translateY(0); }
   .youtube-btn{
     background:linear-gradient(135deg, #ff3d3d, #e30f0f);
-    color:#fff; display:flex; align-items:center; justify-content:center; gap:9px;
+    color:#fff; display:inline-flex; align-items:center; justify-content:center; gap:8px;
     box-shadow:0 8px 18px -8px rgba(227,15,15,.55);
     transition:transform .15s ease, box-shadow .15s ease, background .15s ease;
   }

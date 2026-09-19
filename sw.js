@@ -17,7 +17,7 @@
    itself* (its HTML/CSS/JS/fonts) load without internet too.
    ------------------------------------------------------------ */
 
-const CACHE_NAME = 'qaza-tracker-v16';
+const CACHE_NAME = 'qaza-tracker-v18';
 
 // Bump CACHE_NAME (e.g. 'qaza-tracker-v7') any time you update app.js /
 // styles.css / index.html, so every device picks up the new version
@@ -28,6 +28,12 @@ const PRECACHE_URLS = [
   './index.html',
   './app.js',
   './styles.css',
+  './manifest.json',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-192-maskable.png',
+  './icons/icon-512-maskable.png',
+  './icons/apple-touch-icon.png',
   'https://cdn.tailwindcss.com',
   'https://accounts.google.com/gsi/client',
   'https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Inter:wght@400;500;600;700;800&display=swap'

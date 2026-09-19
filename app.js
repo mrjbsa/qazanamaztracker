@@ -627,9 +627,8 @@ function livingQazaStats(member, asOfISO){
 /* ============================================================
    LOGIN
    ============================================================ */
-// Placeholder — replace with your real YouTube video ID once it's uploaded
-// (the part of the URL after "watch?v="). Everything else works as-is.
-const TUTORIAL_VIDEO_ID = 'jNQXAC9IVRw';
+// The real tutorial video (update this ID any time you re-upload/replace the video)
+const TUTORIAL_VIDEO_ID = 'wOf_zEIgsU8';
 function toggleTutorialVideo(show){
   const el = document.getElementById('tutorialVideoModal');
   if(!el) return;
@@ -665,10 +664,12 @@ function renderLogin(){
       <div id="loginFields"></div>
       <div id="loginErr" class="text-red-600 text-sm font-semibold mt-3 hidden"></div>
       <button onclick="doLogin()" class="emerald-btn w-full rounded-lg py-2.5 font-bold mt-5">${ownerExists?'Log In':'Continue'}</button>
-      <button onclick="toggleTutorialVideo(true)" class="youtube-btn w-full rounded-lg py-2.5 font-bold mt-3">
-        <svg width="24" height="17" viewBox="0 0 28 20" class="yt-icon"><rect width="28" height="20" rx="6" fill="#fff"/><path d="M11 6L20 10L11 14V6Z" fill="#FF0000"/></svg>
-        <span>Video Dekhein — Website Kaise Use Karein</span>
-      </button>
+      <div class="flex justify-center mt-3">
+        <button onclick="toggleTutorialVideo(true)" class="youtube-btn rounded-full font-bold px-7 py-2">
+          <svg width="20" height="14" viewBox="0 0 28 20" class="yt-icon"><rect width="28" height="20" rx="6" fill="#fff"/><path d="M11 6L20 10L11 14V6Z" fill="#FF0000"/></svg>
+          <span>Watch</span>
+        </button>
+      </div>
       <div class="text-center my-4 text-xs text-gray-400">— OR —</div>
       <button onclick="loginConnectAndLoad()" class="gold-btn w-full rounded-lg py-2.5 font-bold">☁️ Load My Family's Data (Google Drive)</button>
       <p class="text-xs text-gray-400 text-center mt-2">Naye phone/computer par pehli baar aaye hain? Apni family ki Gmail se sign-in karke poora record yahan le aayein — phir upar apna naam/password se Log In karein.</p>
@@ -2298,21 +2299,18 @@ function render(){
 
   const navEl = document.getElementById('navScroll');
   if(navEl){
+    // Restore the previous scroll position instantly (no animation) — this
+    // just prevents the tab bar visually snapping back to the start on
+    // every render; it isn't the part the person actually sees move.
+    navEl.style.scrollBehavior = 'auto';
     navEl.scrollLeft = prevScrollLeft;
-    // Only nudge further if the newly active tab isn't fully visible yet —
-    // this keeps the just-tapped tab (and the next one) in view without
-    // ever jumping the scroll position back to zero.
+    navEl.style.scrollBehavior = '';
+    // Then smoothly bring the newly active tab into view (centered),
+    // whether that means scrolling right (mobile, horizontal bar) or
+    // down (desktop, vertical sidebar) — scrollIntoView handles both,
+    // and does nothing if the active tab is already fully visible.
     const active = navEl.querySelector('.nav-item.active');
-    if(active){
-      const contRect = navEl.getBoundingClientRect();
-      const itemRect = active.getBoundingClientRect();
-      const pad = 12;
-      if(itemRect.left < contRect.left){
-        navEl.scrollLeft -= (contRect.left - itemRect.left) + pad;
-      } else if(itemRect.right > contRect.right){
-        navEl.scrollLeft += (itemRect.right - contRect.right) + pad;
-      }
-    }
+    if(active) active.scrollIntoView({ behavior:'smooth', inline:'center', block:'nearest' });
   }
 }
 render();

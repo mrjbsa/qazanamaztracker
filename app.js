@@ -1888,7 +1888,7 @@ function mMyQaza(){
       <h2 class="text-xl font-bold mb-3" style="color:var(--emerald-deep)">🙏 Meri Namaz</h2>
       <p class="text-sm text-gray-600">Aap ki Baligh (Namaz Wajib hone ki) tareekh: <b>${esc(s.balighISO)}</b> (${esc(toHijri(s.balighISO))}).</p>
       <p class="text-sm text-gray-500 mt-2">Is tareekh tak pohanchne ke baad, yahan aap ki roz ki Namaz aur Qaza ka hisaab khud shuru ho jayega.</p>
-      <button onclick="startEditSelfProfile()" class="text-sm font-bold mt-3" style="color:var(--gold)">✏️ Father's Name / Gender / DOB Edit Karein</button>
+      <button onclick="startEditSelfProfile()" class="text-sm font-bold mt-3" style="color:var(--gold)">✏️ Details / Qaza Namaz Edit Karein</button>
     `) + successionBlock;
   }
   return `
@@ -1929,10 +1929,11 @@ function mMyQaza(){
 }
 function mEditProfileForm(record){
   const p = record.profile;
+  const s = livingQazaStats(record);
   return card(`
     <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">✏️ Apni Details Edit Karein</h2>
-    <p class="text-sm text-gray-600 mb-4">Agar Father's Name, Gender ya Date of Birth ghalat darj ho gayi thi, to yahan se theek kar sakte hain. Aap ki roz ki mark ki hui Namazein aur ab tak ki Qaza Ada Ki counts is se nahi badlengi.</p>
-    <div class="grid md:grid-cols-2 gap-3 mb-4">
+    <p class="text-sm text-gray-600 mb-4">Agar Father's Name, Gender, Date of Birth, ya Qaza Namaz ke numbers ghalat darj ho gaye thay, to yahan se theek kar sakte hain.</p>
+    <div class="grid md:grid-cols-2 gap-3 mb-5">
       <div><label class="block text-sm font-bold mb-1">Father's Name</label>
       <input id="editFatherName" type="text" value="${esc(p.fatherName||'')}" class="w-full border rounded-lg px-3 py-2"></div>
       <div><label class="block text-sm font-bold mb-1">Gender</label>
@@ -1943,6 +1944,19 @@ function mEditProfileForm(record){
       <div><label class="block text-sm font-bold mb-1">Date of Birth (Gregorian)</label>
       <input id="editDob" type="date" value="${esc(p.dob||'')}" class="w-full border rounded-lg px-3 py-2"></div>
     </div>
+    <h3 class="font-bold mb-1" style="color:var(--emerald)">Registration Ke Waqt Baaqi Qaza (Baligh se Register hone tak)</h3>
+    <p class="text-xs text-gray-400 mb-3">Ye wahi number hai jo "Ab tak kitni Namaz parh chuke hain?" ke jawab se calculate hua tha — ghalat ho to yahan seedha theek karein.</p>
+    <div class="grid grid-cols-3 md:grid-cols-5 gap-2 mb-5">
+      ${PRAYERS.map(pr=>`<div><label class="block text-xs font-bold mb-1">${pr.label}</label>
+        <input id="editStart_${pr.key}" type="number" min="0" value="${Math.max(0, Number(p.startingQaza?.[pr.key])||0)}" class="border rounded-lg px-2 py-2 w-full text-center"></div>`).join('')}
+    </div>
+    <h3 class="font-bold mb-1" style="color:var(--emerald)">Ab Tak Ada Ki Hui Qaza (App Mein)</h3>
+    <p class="text-xs text-gray-400 mb-3">Ye wo count hai jo "✅ Qaza Ada Ki (+1)" dabane se badhta hai — yahan se seedha number set kar sakte hain, baar baar +1/−1 dabane ki zaroorat nahi.</p>
+    <div class="grid grid-cols-3 md:grid-cols-5 gap-2 mb-4">
+      ${PRAYERS.map(pr=>`<div><label class="block text-xs font-bold mb-1">${pr.label}</label>
+        <input id="editAda_${pr.key}" type="number" min="0" value="${Math.max(0, Number(record.qazaAda?.[pr.key])||0)}" class="border rounded-lg px-2 py-2 w-full text-center"></div>`).join('')}
+    </div>
+    ${s ? `<p class="text-xs text-gray-400 mb-4">Is waqt total baaqi Qaza (missed din samet): <b style="color:var(--danger)">${s.totalRemaining}</b></p>` : ''}
     <div class="flex gap-2">
       <button onclick="saveEditSelfProfile()" class="emerald-btn rounded-lg px-5 py-2 font-bold">💾 Save</button>
       <button onclick="cancelEditSelfProfile()" class="bg-gray-200 rounded-lg px-5 py-2 font-bold">Cancel</button>
@@ -1960,14 +1974,16 @@ function saveEditSelfProfile(){
   if(!fatherName){ alert('Father\u2019s Name likhein.'); return; }
   if(!dob){ alert('Date of Birth select karein.'); return; }
   if(dob > todayISO()){ alert('Date of Birth aaj se pehle ki honi chahiye.'); return; }
-  // Re-derive Baaligh date from the corrected DOB/Gender. The "already
-  // prayed before registering" baseline (startingQaza) stays exactly as
-  // originally entered — this is a correction tool for typos, not a full
-  // re-registration, so daily marks and Qaza-Ada counts are untouched.
+  const startingQaza = {}; PRAYERS.forEach(p=>{ startingQaza[p.key] = Math.max(0, Number(document.getElementById('editStart_'+p.key).value)||0); });
+  const qazaAda = {}; PRAYERS.forEach(p=>{ qazaAda[p.key] = Math.max(0, Number(document.getElementById('editAda_'+p.key).value)||0); });
+  // Re-derive Baaligh date from the corrected DOB/Gender, and apply the
+  // corrected Qaza baseline/progress numbers directly.
   record.profile.fatherName = fatherName;
   record.profile.gender = gender;
   record.profile.dob = dob;
   record.profile.balighISO = addHijriYears(dob, balighAgeFor(gender));
+  record.profile.startingQaza = startingQaza;
+  record.qazaAda = qazaAda;
   record.updatedAt = Date.now();
   EDITING_SELF_PROFILE = false;
   saveDB(); render();

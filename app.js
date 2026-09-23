@@ -89,6 +89,45 @@ const HIJRI_COUNTRIES = [
   {code:'OTHER', label:'Other / Manual', adjust:0},
 ];
 function hijriAdjustDays(){ return (DB.config && DB.config.hijriAdjustDays) || 0; }
+
+/* ---------- Live/authentic Hijri verification (online) ----------
+   The tabular calculation above is deterministic but can land a day or
+   two off the real, moon-sighting-based Hijri date. Whenever the device
+   HAS internet, we ask a public Hijri-calendar API (Aladhan) what the
+   authentic Hijri date is for "today", work out the exact day-offset
+   that makes OUR tabular calendar match it, and store that offset —
+   so both the Wasal Hijri date and every Barsi countdown/alert are
+   using an internet-verified, authentic date whenever possible. The
+   last verified offset (and the date it was verified on) is cached in
+   DB.config, so the app keeps working correctly offline using the last
+   known-good value until it can re-verify. */
+async function verifyHijriOnline(){
+  if(DB.config.hijriAutoVerify===false) return;      // owner switched to fully manual mode
+  if(!navigator.onLine) return;
+  if(DB.config.hijriVerifiedAt === todayISO()) return; // already verified today
+  try{
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2,'0');
+    const mm = String(now.getMonth()+1).padStart(2,'0');
+    const yyyy = now.getFullYear();
+    const res = await fetch(`https://api.aladhan.com/v1/gToH/${dd}-${mm}-${yyyy}`);
+    if(!res.ok) return;
+    const json = await res.json();
+    const h = json && json.data && json.data.hijri;
+    if(!h) return;
+    const apiDay = Number(h.day), apiMonth = Number(h.month && h.month.number), apiYear = Number(h.year);
+    if(!apiDay || !apiMonth || !apiYear) return;
+    const jdnApi = hijriToJDN(apiYear, apiMonth, apiDay);
+    const jdnToday = gregorianToJDN(yyyy, now.getMonth()+1, now.getDate());
+    DB.config.hijriAdjustDays = jdnApi - jdnToday;      // exact offset that makes us match the authentic date
+    DB.config.hijriVerifiedAt = todayISO();
+    DB.config.hijriVerifiedLabel = `${apiDay} ${HIJRI_MONTHS[apiMonth-1] || (h.month&&h.month.en) || ''}, ${apiYear} AH`;
+    saveDB();
+    render();
+  }catch(e){ /* offline / API unreachable — silently keep the last verified (or manual) adjustment */ }
+}
+setInterval(verifyHijriOnline, 60000); // retry roughly every minute until online, then once/day after that (guarded above)
+window.addEventListener('online', verifyHijriOnline);
 function shiftDays(dateObj, days){ return new Date(dateObj.getTime() + days*86400000); }
 /* Gregorian date -> Hijri, computed with plain arithmetic (civil/tabular Islamic calendar).
    We used to ask the browser to do this via Intl.DateTimeFormat(..., 'u-ca-islamic-umalqura'),
@@ -205,6 +244,15 @@ function nextAnniversary(isoDod){
   if(next < todayOnly) next = new Date(now.getFullYear()+1, d.getMonth(), d.getDate());
   return next;
 }
+// How many days remain until the next Barsi (0 = today). Used to drive the
+// 7-day countdown alert (7,6,5,4,3,2,1) that every family member sees.
+function daysUntilAnniversary(isoDod){
+  const next = nextAnniversary(isoDod);
+  if(!next) return null;
+  const now = new Date();
+  const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((next - todayOnly) / 86400000);
+}
 function isAnniversaryToday(isoDod){
   if(!isoDod) return false;
   const d = new Date(isoDod+'T12:00:00');
@@ -228,22 +276,61 @@ function formatAnniversaryDate(dateObj){
   return dateObj.toLocaleDateString();
 }
 
+// A handful of gentle, varied lines for the day-of-Barsi banner — cycles by
+// the Marhoom's id so the same person doesn't see an identical sentence
+// every single year, without needing any extra data entry from the owner.
+const BARSI_DAY_LINES = [
+  'Waqt guzar jata hai, magar mohabbat aur dua kam nahi hoti — aaj unke liye khaas dua karein.',
+  'Unki yaad dil mein hamesha zinda hai. Aaj ke din unke liye Isaal-e-Sawab ka ehtemam karein.',
+  'Har barsi ek yaad dilati hai k dua kabhi bhi der se nahi pohanchti. Aaj unhein bhoolein nahi.',
+  'Aaj ka din unki maghfirat ke liye khususi dua aur sadaqah ka din hai.',
+];
 function wasalBlock(m, s){
   if(!m.dod) return '';
   const hijri = m.dodHijri || toHijri(m.dod);
   const next = nextAnniversary(m.dod);
   const nextStr = next ? formatAnniversaryDate(next) : '';
   const annivToday = isAnniversaryToday(m.dod);
+  const daysLeft = daysUntilAnniversary(m.dod);
+  const nextLabel = (daysLeft!==null && daysLeft>0 && daysLeft<=7) ? `${esc(nextStr)} <span class="font-bold" style="color:var(--gold)">(${daysLeft} din baaki)</span>` : esc(nextStr);
   let banner = '';
   if(annivToday){
+    const line = BARSI_DAY_LINES[Math.abs(String(m.id).split('').reduce((a,c)=>a+c.charCodeAt(0),0)) % BARSI_DAY_LINES.length];
     banner = `<div class="anniversary-banner rounded-lg p-3 mt-2 text-sm font-bold" style="background:var(--emerald-pale);color:var(--emerald-deep);border:1px solid var(--gold)">
       🕊️ Aaj <b>${esc(m.name)}</b> ki wasal barsi hai.
       ${s.totalPct>=100 ? ' Alhamdulillah — unki tamam Qaza Namaz mukammal ho chuki hai. Allah unhein maghfirat aur buland darjaat ata farmaye. Ameen 🤲' : ` Abhi ${s.totalRemaining} Qaza Namaz baqi hain — aaj khususi tor par unke liye Qaza ada karein.`}
+      <div class="font-normal text-xs mt-1" style="color:var(--emerald)">${line}</div>
+    </div>`;
+  } else if(daysLeft!==null && daysLeft>0 && daysLeft<=7){
+    banner = `<div class="rounded-lg p-3 mt-2 text-sm font-bold" style="background:#fff7e6;color:#8a5a00;border:1px solid var(--gold)">
+      ⏳ <b>${esc(m.name)}</b> ki Barsi mein sirf <span style="font-size:16px">${daysLeft}</span> din baaki ${daysLeft===1?'hai':'hain'}. Isaal-e-Sawab (Quran khwani, sadaqah, Qaza mukammal karna) ka ehtemam abhi se shuru kar dein. 🤲
     </div>`;
   } else if(s.totalPct>=100){
     banner = `<div class="rounded-lg p-3 mt-2 text-sm font-bold" style="background:var(--emerald-pale);color:var(--emerald-deep)">✅ Alhamdulillah — ${esc(m.name)} ki tamam Qaza Namaz mukammal ho chuki hai. Allah qabool farmaye. 🤲</div>`;
   }
-  return `<div class="text-xs text-gray-500 mt-1">🕊️ Wasal: ${esc(m.dod)} <span class="text-gray-400">(${esc(hijri)})</span> · Agli Barsi: ${esc(nextStr)}</div>${banner}`;
+  return `<div class="text-xs text-gray-500 mt-1">🕊️ Wasal: ${esc(m.dod)} <span class="text-gray-400">(${esc(hijri)})</span> · Agli Barsi: ${nextLabel}</div>${banner}`;
+}
+
+/* Site-wide "🔔 Barsi Alerts" strip — shown at the top of EVERY page, to
+   BOTH the Family Owner and every Family Member (waris), regardless of
+   which tab they're on, so nobody has to go looking for it. Fires the
+   7-day countdown (7,6,5,4,3,2,1) and the day-of alert. */
+function globalBarsiAlerts(){
+  if(!DB.marhooms || !DB.marhooms.length) return '';
+  const items = DB.marhooms
+    .filter(m=>m.dod)
+    .map(m=>({m, days:daysUntilAnniversary(m.dod)}))
+    .filter(x=>x.days!==null && x.days>=0 && x.days<=7)
+    .sort((a,b)=>a.days-b.days);
+  if(!items.length) return '';
+  const rows = items.map(({m,days})=> days===0
+    ? `<div class="text-sm py-0.5">🕊️ <b>${esc(m.name)}</b> — Aaj wasal barsi hai. Allah unhein maghfirat aur buland darjaat ata farmaye. Ameen 🤲</div>`
+    : `<div class="text-sm py-0.5">⏳ <b>${esc(m.name)}</b> — Barsi mein <b>${days}</b> din baaki ${days===1?'hai':'hain'}.</div>`
+  ).join('');
+  return `<div class="no-print rounded-lg p-3 mb-4" style="background:#fff7e6;border:1px solid var(--gold)">
+    <div class="font-bold mb-1 text-sm" style="color:var(--emerald-deep)">🔔 Barsi Alerts</div>
+    ${rows}
+  </div>`;
 }
 function getActor(){
   if(!SESSION) return null;
@@ -263,8 +350,11 @@ function defaultDB(){
       logo:null,
       ownerAccount:null,   // {name,password,photo} set on first run
       anniversaryFormat:'gregorian',  // 'gregorian' or 'hijri' — which calendar the Barsi alert fires on
-      hijriCountry:'PK',      // which country's moon-sighting convention to approximate (default Pakistan)
-      hijriAdjustDays:-1,     // day-offset applied to the Umm al-Qura calendar for that country
+      hijriCountry:'PK',      // which country's moon-sighting convention to approximate (default Pakistan) — used only in Manual mode
+      hijriAdjustDays:-1,     // day-offset applied to the Umm al-Qura calendar for that country (auto-updated once internet-verified)
+      hijriAutoVerify:true,   // true = keep the Hijri date internet-verified automatically; false = use manual country/adjustment above
+      hijriVerifiedAt:null,   // ISO date this device last successfully verified the Hijri offset online
+      hijriVerifiedLabel:null,// e.g. "12 Rabi' al-Awwal, 1447 AH" — the authentic date last confirmed online
       driveAccountEmail:null,  // once set, only this Gmail may connect Google Drive for this family
       baligh:{ maleHijriYears:15, femaleHijriYears:9 } // age (in Hijri/qamari years) at which Namaz becomes Wajib — adjustable in Settings
     },
@@ -772,7 +862,7 @@ function shell(title, tabs, activeKey, content, whoLabel){
     </div>
     <div class="main-col">
       <div class="topbar no-print"><h1 class="font-display text-lg" style="color:var(--emerald-deep)">${esc(title)}</h1></div>
-      <div class="content">${content}</div>
+      <div class="content">${globalBarsiAlerts()}${content}</div>
       <div class="site-footer no-print">© ${new Date().getFullYear()} Shoaib Ali S/O Muhammad Punhal Jiskani — Qaza Namaz Tracker · All Rights Reserved.</div>
     </div>
   </div>`;
@@ -782,6 +872,7 @@ function shell(title, tabs, activeKey, content, whoLabel){
    FAMILY OWNER DASHBOARD
    ============================================================ */
 const OWNER_TABS = [
+  {key:'home', label:'Home', icon:'📊'},
   {key:'setup', label:'Family Setup', icon:'🏠'},
   {key:'myqaza', label:'Meri Namaz', icon:'🙏'},
   {key:'marhoom', label:'Marhoom', icon:'🕊️'},
@@ -795,8 +886,9 @@ const OWNER_TABS = [
   {key:'about', label:'About', icon:'ℹ️'},
 ];
 function renderOwner(){
-  if(!ACTIVE_TAB || !OWNER_TABS.find(t=>t.key===ACTIVE_TAB)) ACTIVE_TAB='setup';
+  if(!ACTIVE_TAB || !OWNER_TABS.find(t=>t.key===ACTIVE_TAB)) ACTIVE_TAB='home';
   let content='';
+  if(ACTIVE_TAB==='home') content = oHome();
   if(ACTIVE_TAB==='setup') content = oSetup();
   if(ACTIVE_TAB==='myqaza') content = mMyQaza();
   if(ACTIVE_TAB==='marhoom') content = oMarhoom();
@@ -809,6 +901,73 @@ function renderOwner(){
   if(ACTIVE_TAB==='backup') content = oBackup();
   if(ACTIVE_TAB==='about') content = renderAbout();
   document.getElementById('app').innerHTML = shell('Family Owner', OWNER_TABS, ACTIVE_TAB, content, `Signed in as ${esc(DB.config.ownerAccount?.name||'')}${duaTag()}`);
+}
+/* ---------- Home dashboard — quick professional summary + shortcuts ---------- */
+function oHome(){
+  let totalTarget=0, totalDone=0;
+  DB.marhooms.forEach(m=>{ const s=marhoomStats(m.id); totalTarget+=s.totalTarget; totalDone+=s.totalDone; });
+  const totalRemaining = Math.max(totalTarget-totalDone,0);
+  const memberCount = DB.members.length;
+  const recent = (DB.activity||[]).slice(0,6);
+  const recentRows = recent.map(a=>{
+    const m = DB.marhooms.find(x=>x.id===a.marhoomId);
+    const pr = PRAYERS.find(p=>p.key===a.prayer);
+    const actorName = a.memberId==='owner' ? (DB.config.ownerAccount?.name||'Owner') : (DB.members.find(x=>x.id===a.memberId)?.name || '—');
+    return `<tr class="border-b table-row">
+      <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap">${new Date(a.ts).toLocaleDateString()}</td>
+      <td class="py-2 px-2 text-sm">${esc(pr?pr.label:a.prayer)}</td>
+      <td class="py-2 px-2 text-sm">${esc(m?m.name:'—')}</td>
+      <td class="py-2 px-2 text-xs text-gray-500">${esc(actorName)}</td>
+      <td class="py-2 px-2 text-sm font-bold text-right" style="color:${a.delta>0?'var(--emerald)':'var(--danger)'}">${a.delta>0?'+':''}${a.delta}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="5" class="py-6 text-center text-sm text-gray-400">Abhi tak koi activity nahi — "Ada Karein" se Qaza mark karna shuru karein.</td></tr>`;
+  const verified = DB.config.hijriVerifiedAt===todayISO();
+  return `
+  <div class="grid sm:grid-cols-3 gap-4 mb-5">
+    <div class="card" style="background:linear-gradient(135deg,#1d5fae,#123f77);color:#fff;border:none;">
+      <div class="text-xs opacity-80 mb-1 font-bold">Total Qaza Namaz</div>
+      <div class="text-3xl font-bold">${totalTarget}</div>
+    </div>
+    <div class="card" style="background:linear-gradient(135deg,#1c8a52,#0d5732);color:#fff;border:none;">
+      <div class="text-xs opacity-80 mb-1 font-bold">Completed</div>
+      <div class="text-3xl font-bold">${totalDone}</div>
+    </div>
+    <div class="card" style="background:linear-gradient(135deg,var(--gold-light),var(--gold));color:#2a1d05;border:none;">
+      <div class="text-xs opacity-80 mb-1 font-bold">Remaining</div>
+      <div class="text-3xl font-bold">${totalRemaining}</div>
+    </div>
+  </div>
+  <div class="grid lg:grid-cols-3 gap-5">
+    <div class="lg:col-span-2">
+      ${card(`
+        <h2 class="text-lg font-bold mb-3" style="color:var(--emerald-deep)">📜 Recent Records</h2>
+        <div class="overflow-x-auto"><table class="w-full text-left">
+          <thead><tr class="text-xs text-gray-400 border-b"><th class="py-1 px-2">Date</th><th class="py-1 px-2">Namaz</th><th class="py-1 px-2">Marhoom</th><th class="py-1 px-2">By</th><th class="py-1 px-2 text-right">Change</th></tr></thead>
+          <tbody>${recentRows}</tbody>
+        </table></div>
+      `)}
+    </div>
+    <div>
+      ${card(`
+        <h2 class="text-lg font-bold mb-3" style="color:var(--emerald-deep)">⚡ Quick Actions</h2>
+        <div class="flex flex-col gap-2">
+          <button onclick="ACTIVE_TAB='ada';render()" class="emerald-btn rounded-lg px-4 py-2.5 font-bold text-left">🤲 Ada Karein</button>
+          <button onclick="ACTIVE_TAB='marhoom';render()" class="emerald-btn rounded-lg px-4 py-2.5 font-bold text-left">🕊️ Marhoom Add / Edit</button>
+          <button onclick="ACTIVE_TAB='members';render()" class="emerald-btn rounded-lg px-4 py-2.5 font-bold text-left">👨‍👩‍👧‍👦 Family Members</button>
+          <button onclick="ACTIVE_TAB='progress';render()" class="emerald-btn rounded-lg px-4 py-2.5 font-bold text-left">📊 View Reports</button>
+        </div>
+      `)}
+      ${card(`
+        <h2 class="text-sm font-bold mb-2" style="color:var(--emerald-deep)">🌙 Hijri Date</h2>
+        <div class="text-xs text-gray-500">
+          ${verified
+            ? `✅ Aaj ki tareekh internet se authentic verify ho chuki hai${DB.config.hijriVerifiedLabel?` — <b>${esc(DB.config.hijriVerifiedLabel)}</b>`:''}.`
+            : `⏳ Abhi authentic verify nahi ho saki (internet chahiye) — last known-good adjustment istemal ho raha hai.`}
+        </div>
+        <div class="text-[11px] text-gray-400 mt-2">👥 ${memberCount} Family Member${memberCount===1?'':'s'} registered</div>
+      `)}
+    </div>
+  </div>`;
 }
 function oSetup(){
   const c = DB.config;
@@ -834,19 +993,32 @@ function oSetup(){
     </div>
   `)}
   ${c.anniversaryFormat==='hijri' ? card(`
-    <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">🌙 Hijri Calendar — Country</h2>
-    <p class="text-sm text-gray-600 mb-3">Chaand dikhne (moon-sighting) ka elaan har mulk mein alag hota hai, is liye Hijri tareekh 1 din aage/peechay ho sakti hai. Apna mulk select karein — agar Alert phir bhi aap ke mulk ke elaan se ek din aagay/peechay lage tu neechay se manually adjust kar dein.</p>
-    <div class="flex flex-wrap items-center gap-4">
-      <select id="cfgHijriCountry" onchange="setHijriCountry(this.value)" class="border rounded-lg px-3 py-2">
-        ${HIJRI_COUNTRIES.map(hc=>`<option value="${hc.code}" ${hc.code===(c.hijriCountry||'PK')?'selected':''}>${esc(hc.label)}</option>`).join('')}
-      </select>
-      <div class="flex items-center gap-2">
-        <button onclick="nudgeHijriAdjust(-1)" class="minus-btn">− 1 din</button>
-        <span class="text-sm font-bold min-w-[110px] text-center">Adjustment: ${(c.hijriAdjustDays||0)>0?'+':''}${c.hijriAdjustDays||0} din</span>
-        <button onclick="nudgeHijriAdjust(1)" class="minus-btn">+ 1 din</button>
-      </div>
+    <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">🌙 Hijri Calendar — Authenticity</h2>
+    <div class="flex gap-3 mb-3">
+      <button onclick="setHijriAutoVerify(true)" class="${c.hijriAutoVerify!==false?'emerald-btn':'bg-gray-200'} rounded-lg px-5 py-2 font-bold">🌐 Auto (Internet Verified)</button>
+      <button onclick="setHijriAutoVerify(false)" class="${c.hijriAutoVerify===false?'emerald-btn':'bg-gray-200'} rounded-lg px-5 py-2 font-bold">✋ Manual</button>
     </div>
-    <p class="text-xs text-gray-400 mt-2">Base calculation Umm al-Qura (Saudi) calendar par hoti hai; upar wala adjustment usi mein add hota hai — yehi Wasal ki Hijri tareekh aur Barsi Alert dono par lagu hota hai.</p>
+    ${c.hijriAutoVerify!==false ? `
+      <p class="text-sm ${c.hijriVerifiedAt===todayISO()?'text-green-700':'text-amber-700'} font-semibold mb-1">
+        ${c.hijriVerifiedAt===todayISO()
+          ? `✅ Internet se authentic verify ho chuki hai${c.hijriVerifiedLabel?` — ${esc(c.hijriVerifiedLabel)}`:''}.`
+          : `⏳ Abhi tak verify nahi ho saki (internet ki zaroorat hai) — jab tak online nahi hote, last known-good adjustment (${(c.hijriAdjustDays||0)>0?'+':''}${c.hijriAdjustDays||0} din) istemal ho raha hai.`}
+      </p>
+      <p class="text-sm text-gray-600">Jaise hi device online hoga, Wasal ki Hijri tareekh aur Barsi Alert donon khud-ba-khud sabse authentic (internet-verified) tareekh par set ho jayenge — kuch bhi manually karne ki zaroorat nahi.</p>
+    ` : `
+      <p class="text-sm text-gray-600 mb-3">Chaand dikhne (moon-sighting) ka elaan har mulk mein alag hota hai, is liye Hijri tareekh 1 din aage/peechay ho sakti hai. Apna mulk select karein — agar Alert phir bhi aap ke mulk ke elaan se ek din aagay/peechay lage tu neechay se manually adjust kar dein.</p>
+      <div class="flex flex-wrap items-center gap-4">
+        <select id="cfgHijriCountry" onchange="setHijriCountry(this.value)" class="border rounded-lg px-3 py-2">
+          ${HIJRI_COUNTRIES.map(hc=>`<option value="${hc.code}" ${hc.code===(c.hijriCountry||'PK')?'selected':''}>${esc(hc.label)}</option>`).join('')}
+        </select>
+        <div class="flex items-center gap-2">
+          <button onclick="nudgeHijriAdjust(-1)" class="minus-btn">− 1 din</button>
+          <span class="text-sm font-bold min-w-[110px] text-center">Adjustment: ${(c.hijriAdjustDays||0)>0?'+':''}${c.hijriAdjustDays||0} din</span>
+          <button onclick="nudgeHijriAdjust(1)" class="minus-btn">+ 1 din</button>
+        </div>
+      </div>
+      <p class="text-xs text-gray-400 mt-2">Base calculation Umm al-Qura (Saudi) calendar par hoti hai; upar wala adjustment usi mein add hota hai — yehi Wasal ki Hijri tareekh aur Barsi Alert dono par lagu hota hai.</p>
+    `}
   `) : ''}
   ${card(`
     <h2 class="text-xl font-bold mb-2" style="color:var(--emerald-deep)">🧍 Zinda Members — Baligh (Adulthood) Age</h2>
@@ -903,6 +1075,12 @@ function nudgeHijriAdjust(delta){
   DB.config.hijriAdjustDays = (DB.config.hijriAdjustDays||0) + delta;
   saveDB();
   render();
+}
+function setHijriAutoVerify(auto){
+  DB.config.hijriAutoVerify = auto;
+  saveDB();
+  render();
+  if(auto){ DB.config.hijriVerifiedAt = null; verifyHijriOnline(); } // force a fresh check right away
 }
 function saveBalighAges(){
   const male = Number(document.getElementById('cfgBalighMale').value);
@@ -2339,3 +2517,4 @@ function render(){
 }
 render();
 initDriveConnection();
+verifyHijriOnline();

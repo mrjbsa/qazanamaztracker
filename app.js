@@ -119,12 +119,25 @@ async function verifyHijriOnline(){
     if(!apiDay || !apiMonth || !apiYear) return;
     const jdnApi = hijriToJDN(apiYear, apiMonth, apiDay);
     const jdnToday = gregorianToJDN(yyyy, now.getMonth()+1, now.getDate());
-    DB.config.hijriAdjustDays = jdnApi - jdnToday;      // exact offset that makes us match the authentic date
+    // The API returns the Umm al-Qura (Saudi) calendar. Pakistan's Rooyat-e-Hilal
+    // committee — and most other countries — commonly announce the new month a
+    // day (sometimes two) after Saudi's sighting, so the authentic LOCAL date
+    // for the owner's selected country = API's calendar date + that country's
+    // fixed offset. hijriApiDelta is the pure internet-verified drift-correction
+    // (kept separate so switching country later doesn't need a fresh network
+    // call); hijriAdjustDays is what's actually used everywhere and additionally
+    // bakes in the country offset (Pakistan, -1 day, by default).
+    DB.config.hijriApiDelta = jdnApi - jdnToday;
+    DB.config.hijriAdjustDays = DB.config.hijriApiDelta + countryAdjustDays();
     DB.config.hijriVerifiedAt = todayISO();
-    DB.config.hijriVerifiedLabel = `${apiDay} ${HIJRI_MONTHS[apiMonth-1] || (h.month&&h.month.en) || ''}, ${apiYear} AH`;
+    DB.config.hijriVerifiedLabel = `${apiDay} ${HIJRI_MONTHS[apiMonth-1] || (h.month&&h.month.en) || ''}, ${apiYear} AH (Umm al-Qura)`;
     saveDB();
     render();
   }catch(e){ /* offline / API unreachable — silently keep the last verified (or manual) adjustment */ }
+}
+function countryAdjustDays(){
+  const preset = HIJRI_COUNTRIES.find(hc=>hc.code===(DB.config.hijriCountry||'PK'));
+  return preset ? preset.adjust : 0;
 }
 setInterval(verifyHijriOnline, 60000); // retry roughly every minute until online, then once/day after that (guarded above)
 window.addEventListener('online', verifyHijriOnline);
@@ -360,11 +373,12 @@ function defaultDB(){
       logo:null,
       ownerAccount:null,   // {name,password,photo} set on first run
       anniversaryFormat:'gregorian',  // 'gregorian' or 'hijri' — which calendar the Barsi alert fires on
-      hijriCountry:'PK',      // which country's moon-sighting convention to approximate (default Pakistan) — used only in Manual mode
-      hijriAdjustDays:-1,     // day-offset applied to the Umm al-Qura calendar for that country (auto-updated once internet-verified)
-      hijriAutoVerify:true,   // true = keep the Hijri date internet-verified automatically; false = use manual country/adjustment above
+      hijriCountry:'PK',      // which country's moon-sighting convention to use (default Pakistan) — applies in BOTH Auto and Manual mode
+      hijriAdjustDays:-1,     // final day-offset actually used everywhere (Wasal date, Barsi date/alerts) — auto-recomputed when verified online or when country changes
+      hijriAutoVerify:true,   // true = keep the Hijri date internet-verified automatically; false = use the manual ±1-day nudge buttons instead
+      hijriApiDelta:null,     // raw drift between our tabular calendar and the internet-verified (Umm al-Qura) calendar — kept separately so changing country never needs a fresh network call
       hijriVerifiedAt:null,   // ISO date this device last successfully verified the Hijri offset online
-      hijriVerifiedLabel:null,// e.g. "12 Rabi' al-Awwal, 1447 AH" — the authentic date last confirmed online
+      hijriVerifiedLabel:null,// e.g. "12 Rabi' al-Awwal, 1447 AH (Umm al-Qura)" — the authentic base date last confirmed online, before the country offset is applied
       driveAccountEmail:null,  // once set, only this Gmail may connect Google Drive for this family
       baligh:{ maleHijriYears:15, femaleHijriYears:9 } // age (in Hijri/qamari years) at which Namaz becomes Wajib — adjustable in Settings
     },
@@ -589,7 +603,14 @@ function compressImage(file, maxDim, quality){
           }
           const canvas = document.createElement('canvas');
           canvas.width = width; canvas.height = height;
-          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          // colorSpace:'srgb' matters here: phone photos (especially iPhone) are often
+          // captured in the wider "Display P3" color space. Without forcing the canvas
+          // to interpret/output in plain sRGB, some browsers re-encode those P3 values
+          // as if they were already sRGB, which oversaturates reds — exactly the
+          // "photo looks reddish after uploading" problem this fixes. Browsers that
+          // don't understand the option simply ignore it and behave as before.
+          const ctx = canvas.getContext('2d', {colorSpace:'srgb'});
+          ctx.drawImage(img, 0, 0, width, height);
           resolve(canvas.toDataURL('image/jpeg', quality));
         }catch(err){ resolve(e.target.result); }
       };
@@ -1013,26 +1034,28 @@ function oSetup(){
       <button onclick="setHijriAutoVerify(true)" class="${c.hijriAutoVerify!==false?'emerald-btn':'bg-gray-200'} rounded-lg px-5 py-2 font-bold">🌐 Auto (Internet Verified)</button>
       <button onclick="setHijriAutoVerify(false)" class="${c.hijriAutoVerify===false?'emerald-btn':'bg-gray-200'} rounded-lg px-5 py-2 font-bold">✋ Manual</button>
     </div>
-    ${c.hijriAutoVerify!==false ? `
-      <p class="text-sm ${c.hijriVerifiedAt===todayISO()?'text-green-700':'text-amber-700'} font-semibold mb-1">
-        ${c.hijriVerifiedAt===todayISO()
-          ? `✅ Internet se authentic verify ho chuki hai${c.hijriVerifiedLabel?` — ${esc(c.hijriVerifiedLabel)}`:''}.`
-          : `⏳ Abhi tak verify nahi ho saki (internet ki zaroorat hai) — jab tak online nahi hote, last known-good adjustment (${(c.hijriAdjustDays||0)>0?'+':''}${c.hijriAdjustDays||0} din) istemal ho raha hai.`}
-      </p>
-      <p class="text-sm text-gray-600">Jaise hi device online hoga, Wasal ki Hijri tareekh aur Barsi Alert donon khud-ba-khud sabse authentic (internet-verified) tareekh par set ho jayenge — kuch bhi manually karne ki zaroorat nahi.</p>
-    ` : `
-      <p class="text-sm text-gray-600 mb-3">Chaand dikhne (moon-sighting) ka elaan har mulk mein alag hota hai, is liye Hijri tareekh 1 din aage/peechay ho sakti hai. Apna mulk select karein — agar Alert phir bhi aap ke mulk ke elaan se ek din aagay/peechay lage tu neechay se manually adjust kar dein.</p>
-      <div class="flex flex-wrap items-center gap-4">
-        <select id="cfgHijriCountry" onchange="setHijriCountry(this.value)" class="border rounded-lg px-3 py-2">
-          ${HIJRI_COUNTRIES.map(hc=>`<option value="${hc.code}" ${hc.code===(c.hijriCountry||'PK')?'selected':''}>${esc(hc.label)}</option>`).join('')}
-        </select>
+    <p class="text-sm text-gray-600 mb-3">Chaand dikhne (moon-sighting) ka elaan har mulk mein alag hota hai (Pakistan mein aksar Saudi se 1 din baad hota hai) — is liye apna mulk select karein. Default <b>Pakistan</b> hai.</p>
+    <div class="flex flex-wrap items-center gap-4 mb-2">
+      <select id="cfgHijriCountry" onchange="setHijriCountry(this.value)" class="border rounded-lg px-3 py-2">
+        ${HIJRI_COUNTRIES.map(hc=>`<option value="${hc.code}" ${hc.code===(c.hijriCountry||'PK')?'selected':''}>${esc(hc.label)}</option>`).join('')}
+      </select>
+      ${c.hijriAutoVerify===false ? `
         <div class="flex items-center gap-2">
           <button onclick="nudgeHijriAdjust(-1)" class="minus-btn">− 1 din</button>
           <span class="text-sm font-bold min-w-[110px] text-center">Adjustment: ${(c.hijriAdjustDays||0)>0?'+':''}${c.hijriAdjustDays||0} din</span>
           <button onclick="nudgeHijriAdjust(1)" class="minus-btn">+ 1 din</button>
         </div>
-      </div>
-      <p class="text-xs text-gray-400 mt-2">Base calculation Umm al-Qura (Saudi) calendar par hoti hai; upar wala adjustment usi mein add hota hai — yehi Wasal ki Hijri tareekh aur Barsi Alert dono par lagu hota hai.</p>
+      ` : ''}
+    </div>
+    ${c.hijriAutoVerify!==false ? `
+      <p class="text-sm ${c.hijriVerifiedAt===todayISO()?'text-green-700':'text-amber-700'} font-semibold mb-1">
+        ${c.hijriVerifiedAt===todayISO()
+          ? `✅ Internet se authentic verify ho chuki hai (${esc(HIJRI_COUNTRIES.find(h=>h.code===(c.hijriCountry||'PK'))?.label||'Pakistan')} ke hisaab se)${c.hijriVerifiedLabel?` — base: ${esc(c.hijriVerifiedLabel)}`:''}.`
+          : `⏳ Abhi tak verify nahi ho saki (internet ki zaroorat hai) — jab tak online nahi hote, last known-good adjustment (${(c.hijriAdjustDays||0)>0?'+':''}${c.hijriAdjustDays||0} din) istemal ho raha hai.`}
+      </p>
+      <p class="text-sm text-gray-600">Jaise hi device online hoga, Wasal ki Hijri tareekh aur Barsi Alert donon khud-ba-khud ${esc(HIJRI_COUNTRIES.find(h=>h.code===(c.hijriCountry||'PK'))?.label||'Pakistan')} ke mutabiq authentic tareekh par set ho jayenge — kuch bhi manually karne ki zaroorat nahi.</p>
+    ` : `
+      <p class="text-xs text-gray-400 mt-1">Base calculation Umm al-Qura (Saudi) calendar par hoti hai; upar wala adjustment usi mein add hota hai — yehi Wasal ki Hijri tareekh aur Barsi Alert dono par lagu hota hai.</p>
     `}
   `) : ''}
   ${card(`
@@ -1082,7 +1105,11 @@ function setAnniversaryFormat(fmt){
 function setHijriCountry(code){
   const preset = HIJRI_COUNTRIES.find(hc=>hc.code===code);
   DB.config.hijriCountry = code;
-  DB.config.hijriAdjustDays = preset ? preset.adjust : 0;
+  // If we already have today's internet-verified delta, re-apply it with the
+  // new country's offset instantly — no need to hit the network again.
+  DB.config.hijriAdjustDays = (DB.config.hijriAutoVerify!==false && typeof DB.config.hijriApiDelta==='number')
+    ? DB.config.hijriApiDelta + (preset ? preset.adjust : 0)
+    : (preset ? preset.adjust : 0);
   saveDB();
   render();
 }

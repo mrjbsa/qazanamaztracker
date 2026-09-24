@@ -849,7 +849,7 @@ function doLogin(){
    APP SHELL
    ============================================================ */
 function shell(title, tabs, activeKey, content, whoLabel){
-  const nav = tabs.map(t=>`<div class="nav-item ${t.key===activeKey?'active':''}" onclick="ACTIVE_TAB='${t.key}';render()"><span>${t.icon}</span><span>${esc(t.label)}</span></div>`).join('');
+  const nav = tabs.map(t=>`<div class="nav-item ${t.key===activeKey?'active':''}" onclick="ACTIVE_TAB='${t.key}';render()"><span class="nav-icon">${t.icon}</span><span>${esc(t.label)}</span></div>`).join('');
   return `
   <div class="app-shell">
     <div class="sidebar no-print" id="navScroll">
@@ -861,7 +861,9 @@ function shell(title, tabs, activeKey, content, whoLabel){
       </div>
     </div>
     <div class="main-col">
-      <div class="topbar no-print"><h1 class="font-display text-lg" style="color:var(--emerald-deep)">${esc(title)}</h1></div>
+      <div class="topbar no-print">
+        <h1 class="text-lg flex items-center gap-2" style="color:var(--emerald-deep)"><span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:var(--emerald-pale);font-size:17px;">🕌</span>${esc(title)}</h1>
+      </div>
       <div class="content">${globalBarsiAlerts()}${content}</div>
       <div class="site-footer no-print">© ${new Date().getFullYear()} Shoaib Ali S/O Muhammad Punhal Jiskani — Qaza Namaz Tracker · All Rights Reserved.</div>
     </div>
@@ -924,17 +926,17 @@ function oHome(){
   const verified = DB.config.hijriVerifiedAt===todayISO();
   return `
   <div class="grid sm:grid-cols-3 gap-4 mb-5">
-    <div class="card" style="background:linear-gradient(135deg,#1d5fae,#123f77);color:#fff;border:none;">
-      <div class="text-xs opacity-80 mb-1 font-bold">Total Qaza Namaz</div>
-      <div class="text-3xl font-bold">${totalTarget}</div>
+    <div class="card flex items-center gap-4" style="background:linear-gradient(135deg,#1d5fae,#123f77);color:#fff;border:none;">
+      <div style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🕌</div>
+      <div><div class="text-xs opacity-80 font-bold">Total Qaza Namaz</div><div class="text-3xl font-bold">${totalTarget}</div></div>
     </div>
-    <div class="card" style="background:linear-gradient(135deg,#1c8a52,#0d5732);color:#fff;border:none;">
-      <div class="text-xs opacity-80 mb-1 font-bold">Completed</div>
-      <div class="text-3xl font-bold">${totalDone}</div>
+    <div class="card flex items-center gap-4" style="background:linear-gradient(135deg,#1c8a52,#0d5732);color:#fff;border:none;">
+      <div style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">✅</div>
+      <div><div class="text-xs opacity-80 font-bold">Completed</div><div class="text-3xl font-bold">${totalDone}</div></div>
     </div>
-    <div class="card" style="background:linear-gradient(135deg,var(--gold-light),var(--gold));color:#2a1d05;border:none;">
-      <div class="text-xs opacity-80 mb-1 font-bold">Remaining</div>
-      <div class="text-3xl font-bold">${totalRemaining}</div>
+    <div class="card flex items-center gap-4" style="background:linear-gradient(135deg,var(--gold-light),var(--gold));color:#2a1d05;border:none;">
+      <div style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.35);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">⏳</div>
+      <div><div class="text-xs opacity-80 font-bold">Remaining</div><div class="text-3xl font-bold">${totalRemaining}</div></div>
     </div>
   </div>
   <div class="grid lg:grid-cols-3 gap-5">

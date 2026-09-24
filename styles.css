@@ -126,6 +126,10 @@
   .minus-btn:hover{ background:#e6dcc0; }
 
   .staff-avatar{ width:56px; height:56px; border-radius:50%; object-fit:cover; border:2px solid var(--gold); }
+  /* ---------- Tables: clean, consistent headers everywhere (desktop + mobile) ---------- */
+  table{ width:100%; border-collapse:separate; border-spacing:0; }
+  table thead th{ text-align:left; padding:9px 10px; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#8a9490; font-weight:700; border-bottom:1px solid var(--line); background:var(--sand); }
+  table tbody td{ padding:10px; border-bottom:1px solid var(--line); }
   .table-row:hover{ background:var(--emerald-pale); }
 
   ::-webkit-scrollbar{ width:8px; height:8px; }
@@ -155,7 +159,16 @@
     .content{ padding:12px; }
     .card{ padding:16px; border-radius:12px; }
     .login-card{ padding:28px 20px 24px; }
-    table{ font-size:12px; min-width:640px; }
+    /* Tables on mobile: keep the first column pinned while the rest scrolls
+       sideways, with a soft shadow marking the pinned edge — reads as an
+       intentional, app-like mobile table instead of a cramped desktop table
+       squeezed into a small screen. */
+    .overflow-x-auto{ border-radius:12px; }
+    .overflow-x-auto table th:first-child, .overflow-x-auto table td:first-child{
+      position:sticky; left:0; background:#fff; z-index:1; box-shadow:2px 0 5px -2px rgba(0,0,0,.10);
+    }
+    .overflow-x-auto table thead th:first-child{ background:var(--sand); }
+    table{ font-size:12.5px; min-width:600px; }
     table th, table td{ white-space:nowrap; }
     .staff-avatar{ width:44px; height:44px; }
   }

@@ -264,16 +264,26 @@ function isAnniversaryToday(isoDod){
   }
   return d.getMonth()===now.getMonth() && d.getDate()===now.getDate();
 }
+// Always shows the real, accurate GREGORIAN calendar date (e.g. "07 Jun 2026")
+// for the next Barsi — this is the date families actually plan around.
+// Previously, when Hijri mode was on, this asked the *browser* to reformat
+// the date using its built-in Islamic calendar (Intl 'u-ca-islamic-umalqura').
+// That calendar data isn't reliably present on every device (some Android
+// WebViews silently fall back and mislabel a Gregorian date as if it were
+// Hijri), so it could show the wrong date entirely — exactly the "next Barsi
+// date isn't accurate" problem this fixes. We now always compute the
+// Gregorian date directly, using our own reliable tabular Hijri engine only
+// to add the "(20 Muharram, 1448 AH)" label alongside it — never to derive
+// the date itself.
 function formatAnniversaryDate(dateObj){
   if(!dateObj) return '';
+  const gregorianStr = dateObj.toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'});
   if(DB.config.anniversaryFormat === 'hijri'){
-    try{
-      const d = shiftDays(dateObj, hijriAdjustDays());
-      return new Intl.DateTimeFormat('en-TN-u-ca-islamic-umalqura', {day:'numeric', month:'long', year:'numeric'}).format(d);
-    }
-    catch(e){ return dateObj.toLocaleDateString(); }
+    const hp = hijriParts(dateObj);
+    const hijriStr = hp ? `${hp.day} ${HIJRI_MONTHS[hp.month-1]}, ${hp.year} AH` : '';
+    return hijriStr ? `${gregorianStr} <span class="text-gray-400 font-normal">(${hijriStr})</span>` : gregorianStr;
   }
-  return dateObj.toLocaleDateString();
+  return gregorianStr;
 }
 
 // A handful of gentle, varied lines for the day-of-Barsi banner — cycles by
@@ -292,7 +302,7 @@ function wasalBlock(m, s){
   const nextStr = next ? formatAnniversaryDate(next) : '';
   const annivToday = isAnniversaryToday(m.dod);
   const daysLeft = daysUntilAnniversary(m.dod);
-  const nextLabel = (daysLeft!==null && daysLeft>0 && daysLeft<=7) ? `${esc(nextStr)} <span class="font-bold" style="color:var(--gold)">(${daysLeft} din baaki)</span>` : esc(nextStr);
+  const nextLabel = (daysLeft!==null && daysLeft>0 && daysLeft<=7) ? `${nextStr} <span class="font-bold" style="color:var(--gold)">(${daysLeft} din baaki)</span>` : nextStr;
   let banner = '';
   if(annivToday){
     const line = BARSI_DAY_LINES[Math.abs(String(m.id).split('').reduce((a,c)=>a+c.charCodeAt(0),0)) % BARSI_DAY_LINES.length];

@@ -934,27 +934,38 @@ function oHome(){
     </tr>`;
   }).join('') || `<tr><td colspan="5" class="py-6 text-center text-sm text-gray-400">Abhi tak koi activity nahi — "Ada Karein" se Qaza mark karna shuru karein.</td></tr>`;
   const verified = DB.config.hijriVerifiedAt===todayISO();
+  const todayHijri = hijriParts(new Date());
+  const todayHijriStr = todayHijri ? `${todayHijri.day} ${HIJRI_MONTHS[todayHijri.month-1]}, ${todayHijri.year} AH` : '—';
   return `
-  <div class="grid sm:grid-cols-3 gap-4 mb-5">
-    <div class="card flex items-center gap-4" style="background:linear-gradient(135deg,#1d5fae,#123f77);color:#fff;border:none;">
-      <div style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🕌</div>
-      <div><div class="text-xs opacity-80 font-bold">Total Qaza Namaz</div><div class="text-3xl font-bold">${totalTarget}</div></div>
+  <div class="rounded-2xl p-4 mb-5 flex items-center justify-between flex-wrap gap-3" style="background:linear-gradient(135deg,var(--emerald-deep),var(--emerald));color:#fff;">
+    <div>
+      <div class="text-xs opacity-75 font-bold mb-0.5">🌙 Aaj ki Islamic (Hijri) Tareekh</div>
+      <div class="text-xl font-bold">${esc(todayHijriStr)}</div>
     </div>
-    <div class="card flex items-center gap-4" style="background:linear-gradient(135deg,#1c8a52,#0d5732);color:#fff;border:none;">
-      <div style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">✅</div>
-      <div><div class="text-xs opacity-80 font-bold">Completed</div><div class="text-3xl font-bold">${totalDone}</div></div>
-    </div>
-    <div class="card flex items-center gap-4" style="background:linear-gradient(135deg,var(--gold-light),var(--gold));color:#2a1d05;border:none;">
-      <div style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.35);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">⏳</div>
-      <div><div class="text-xs opacity-80 font-bold">Remaining</div><div class="text-3xl font-bold">${totalRemaining}</div></div>
+    <div class="text-xs font-semibold px-3 py-1.5 rounded-full" style="background:${verified?'rgba(255,255,255,.18)':'rgba(255,255,255,.10)'}">
+      ${verified ? '✅ Internet se authentic verified' : '⏳ Verify ho rahi hai — online hotay hi update hogi'}
     </div>
   </div>
-  <div class="grid lg:grid-cols-3 gap-5">
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+    <div class="card flex items-center gap-4" style="background:linear-gradient(135deg,#1d5fae,#123f77);color:#fff;border:none;">
+      <div style="width:44px;height:44px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">🕌</div>
+      <div class="min-w-0"><div class="text-xs opacity-80 font-bold">Total Qaza Namaz</div><div class="text-2xl sm:text-3xl font-bold">${totalTarget}</div></div>
+    </div>
+    <div class="card flex items-center gap-4" style="background:linear-gradient(135deg,#1c8a52,#0d5732);color:#fff;border:none;">
+      <div style="width:44px;height:44px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">✅</div>
+      <div class="min-w-0"><div class="text-xs opacity-80 font-bold">Completed</div><div class="text-2xl sm:text-3xl font-bold">${totalDone}</div></div>
+    </div>
+    <div class="card flex items-center gap-4" style="background:linear-gradient(135deg,var(--gold-light),var(--gold));color:#2a1d05;border:none;">
+      <div style="width:44px;height:44px;border-radius:13px;background:rgba(255,255,255,.35);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">⏳</div>
+      <div class="min-w-0"><div class="text-xs opacity-80 font-bold">Remaining</div><div class="text-2xl sm:text-3xl font-bold">${totalRemaining}</div></div>
+    </div>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
     <div class="lg:col-span-2">
       ${card(`
         <h2 class="text-lg font-bold mb-3" style="color:var(--emerald-deep)">📜 Recent Records</h2>
         <div class="overflow-x-auto"><table class="w-full text-left">
-          <thead><tr class="text-xs text-gray-400 border-b"><th class="py-1 px-2">Date</th><th class="py-1 px-2">Namaz</th><th class="py-1 px-2">Marhoom</th><th class="py-1 px-2">By</th><th class="py-1 px-2 text-right">Change</th></tr></thead>
+          <thead><tr><th>Date</th><th>Namaz</th><th>Marhoom</th><th>By</th><th class="text-right">Change</th></tr></thead>
           <tbody>${recentRows}</tbody>
         </table></div>
       `)}
@@ -969,15 +980,7 @@ function oHome(){
           <button onclick="ACTIVE_TAB='progress';render()" class="emerald-btn rounded-lg px-4 py-2.5 font-bold text-left">📊 View Reports</button>
         </div>
       `)}
-      ${card(`
-        <h2 class="text-sm font-bold mb-2" style="color:var(--emerald-deep)">🌙 Hijri Date</h2>
-        <div class="text-xs text-gray-500">
-          ${verified
-            ? `✅ Aaj ki tareekh internet se authentic verify ho chuki hai${DB.config.hijriVerifiedLabel?` — <b>${esc(DB.config.hijriVerifiedLabel)}</b>`:''}.`
-            : `⏳ Abhi authentic verify nahi ho saki (internet chahiye) — last known-good adjustment istemal ho raha hai.`}
-        </div>
-        <div class="text-[11px] text-gray-400 mt-2">👥 ${memberCount} Family Member${memberCount===1?'':'s'} registered</div>
-      `)}
+      <div class="text-[11px] text-gray-400 mt-3 px-1">👥 ${memberCount} Family Member${memberCount===1?'':'s'} registered</div>
     </div>
   </div>`;
 }

@@ -125,6 +125,19 @@
   .minus-btn{ padding:10px 12px; border-radius:10px; font-weight:700; background:var(--sand-dark); color:var(--ink); transition:background .15s ease; }
   .minus-btn:hover{ background:#e6dcc0; }
 
+  /* Native file inputs render as a plain unstyled OS button by default —
+     stands out against the rest of the themed UI. Skinning just the button
+     part (::file-selector-button) keeps the native picker/behavior intact. */
+  input[type="file"]{
+    font-size:13px; color:var(--ink);
+  }
+  input[type="file"]::file-selector-button{
+    background:var(--emerald); color:#fff; border:none; border-radius:9px;
+    padding:8px 14px; font-weight:700; font-size:13px; margin-right:10px;
+    cursor:pointer; transition:background .15s ease;
+  }
+  input[type="file"]::file-selector-button:hover{ background:var(--emerald-deep); }
+
   .staff-avatar{ width:56px; height:56px; border-radius:50%; object-fit:cover; border:2px solid var(--gold); }
   /* ---------- Tables: clean, consistent headers everywhere (desktop + mobile) ---------- */
   table{ width:100%; border-collapse:separate; border-spacing:0; }

@@ -310,7 +310,16 @@ const BARSI_DAY_LINES = [
 ];
 function wasalBlock(m, s){
   if(!m.dod) return '';
-  const hijri = m.dodHijri || toHijri(m.dod);
+  // Always recompute the Hijri Wasal date LIVE (never trust the frozen
+  // m.dodHijri snapshot saved back when the record was created) — the
+  // online auto-verify can recalibrate the adjustment day-to-day, and if
+  // the displayed Wasal date were frozen while the Barsi search below
+  // uses the current adjustment, the two could drift out of sync (e.g.
+  // showing a different Hijri day, or the Barsi search silently jumping
+  // a year because it's comparing against a target that no longer
+  // matches what's on screen). Computing both from the same live value
+  // keeps them permanently consistent with each other.
+  const hijri = toHijri(m.dod);
   const next = nextAnniversary(m.dod);
   const nextStr = next ? formatAnniversaryDate(next) : '';
   const annivToday = isAnniversaryToday(m.dod);
@@ -587,8 +596,24 @@ function mergeDB(a, b){
    every photo to a small, sharp-enough JPEG before it's ever stored. */
 function compressImage(file, maxDim, quality){
   maxDim = maxDim || 480; quality = quality==null ? 0.72 : quality;
-  return new Promise((resolve, reject)=>{
-    if(!file){ resolve(null); return; }
+  if(!file) return Promise.resolve(null);
+  const fit = (w,h)=>{
+    if(w > maxDim || h > maxDim){
+      if(w >= h){ h = Math.round(h*(maxDim/w)); w = maxDim; }
+      else { w = Math.round(w*(maxDim/h)); h = maxDim; }
+    }
+    return {w,h};
+  };
+  const draw = (source, w, h)=>{
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d', {colorSpace:'srgb'});
+    ctx.drawImage(source, 0, 0, w, h);
+    return canvas.toDataURL('image/jpeg', quality);
+  };
+  // Legacy path (FileReader + <img> + canvas) — used as a fallback for very
+  // old browsers, or if the faster path below fails for any reason.
+  const legacyPath = ()=> new Promise((resolve, reject)=>{
     const reader = new FileReader();
     reader.onerror = ()=>reject(new Error('Tasveer parhi nahi ja saki.'));
     reader.onload = (e)=>{
@@ -596,28 +621,29 @@ function compressImage(file, maxDim, quality){
       img.onerror = ()=>resolve(e.target.result); // fall back to the original rather than losing the photo
       img.onload = ()=>{
         try{
-          let width = img.naturalWidth, height = img.naturalHeight;
-          if(width > maxDim || height > maxDim){
-            if(width >= height){ height = Math.round(height*(maxDim/width)); width = maxDim; }
-            else { width = Math.round(width*(maxDim/height)); height = maxDim; }
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = width; canvas.height = height;
-          // colorSpace:'srgb' matters here: phone photos (especially iPhone) are often
-          // captured in the wider "Display P3" color space. Without forcing the canvas
-          // to interpret/output in plain sRGB, some browsers re-encode those P3 values
-          // as if they were already sRGB, which oversaturates reds — exactly the
-          // "photo looks reddish after uploading" problem this fixes. Browsers that
-          // don't understand the option simply ignore it and behave as before.
-          const ctx = canvas.getContext('2d', {colorSpace:'srgb'});
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', quality));
+          const {w,h} = fit(img.naturalWidth, img.naturalHeight);
+          resolve(draw(img, w, h));
         }catch(err){ resolve(e.target.result); }
       };
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
   });
+  if(typeof createImageBitmap !== 'function') return legacyPath();
+  // createImageBitmap is the preferred path: unlike FileReader+<img>, it
+  // reliably performs correct color-space conversion to sRGB while decoding.
+  // Phone photos (especially iPhone) are very often captured in the wider
+  // "Display P3" color space, and the older <img>-based path can misinterpret
+  // those values as if they were already sRGB — oversaturating them into the
+  // reddish/orange tint reported after uploading. {colorSpaceConversion:
+  // 'default'} is what makes this path fix that; the canvas colorSpace option
+  // below is a second safety net for browsers that support it.
+  return createImageBitmap(file, {colorSpaceConversion:'default'}).then(bitmap=>{
+    const {w,h} = fit(bitmap.width, bitmap.height);
+    const out = draw(bitmap, w, h);
+    if(bitmap.close) bitmap.close();
+    return out;
+  }).catch(()=> legacyPath());
 }
 
 /* ---------------------------- SESSION ---------------------------- */
@@ -1194,7 +1220,7 @@ function oMarhoom(){
     const s = marhoomStats(m.id);
     return `<tr class="border-b table-row">
       <td class="py-2">${m.photo?`<img src="${m.photo}" class="staff-avatar">`:'<span class="text-2xl">🕊️</span>'}</td>
-      <td>${esc(m.name)}</td><td>${esc(m.relation)}</td><td>${m.dod?`${esc(m.dod)}<br><span class="text-xs text-gray-400">${esc(m.dodHijri||toHijri(m.dod))}</span>`:'—'}</td>
+      <td>${esc(m.name)}</td><td>${esc(m.relation)}</td><td>${m.dod?`${esc(m.dod)}<br><span class="text-xs text-gray-400">${esc(toHijri(m.dod))}</span>`:'—'}</td>
       <td class="w-40">${bar(s.totalPct)}<span class="text-xs text-gray-500">${s.totalDone}/${s.totalTarget} (${s.totalPct.toFixed(0)}%)</span></td>
       <td class="whitespace-nowrap">
         <button onclick="ACTIVE_TAB='progress'; render(); setTimeout(()=>document.getElementById('mstat-${m.id}')?.scrollIntoView({behavior:'smooth'}),0)" title="View Progress" class="text-sm font-bold mr-2" style="color:var(--emerald)">📊</button>

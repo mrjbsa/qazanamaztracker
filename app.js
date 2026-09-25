@@ -206,6 +206,37 @@ function jdnToGregorian(jdn){
   return {year, month, day};
 }
 function ymdISO(y,m,d){ return `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+
+// Plain GREGORIAN calendar difference between two ISO dates, as
+// {years, months, days} — used for "age at Wasal" (DOB → Wasal) and
+// "time since passing" (Wasal → today). Deliberately calendar-based (not
+// a fixed 365/30-day average), so it matches how people actually count
+// birthdays/anniversaries, and deliberately Gregorian (not Hijri) per
+// how the owner wants these two counters shown.
+function gregorianDiffYMD(fromISO, toISO){
+  if(!fromISO || !toISO) return null;
+  const from = new Date(fromISO+'T00:00:00');
+  const to = new Date(toISO+'T00:00:00');
+  if(isNaN(from) || isNaN(to) || to < from) return null;
+  let years = to.getFullYear() - from.getFullYear();
+  let months = to.getMonth() - from.getMonth();
+  let days = to.getDate() - from.getDate();
+  if(days < 0){
+    months -= 1;
+    days += new Date(to.getFullYear(), to.getMonth(), 0).getDate(); // days in the month before `to`
+  }
+  if(months < 0){ years -= 1; months += 12; }
+  return {years, months, days};
+}
+function formatYMD(ymd, opts){
+  if(!ymd) return '';
+  const showDays = opts && opts.showDays;
+  const parts = [];
+  if(ymd.years>0) parts.push(`${ymd.years} saal`);
+  if(ymd.months>0) parts.push(`${ymd.months} maheenay`);
+  if(showDays && ymd.days>0) parts.push(`${ymd.days} din`);
+  return parts.length ? parts.join(', ') : (showDays ? '0 din' : '0 maheenay');
+}
 // Adds N *Hijri* (qamari) years to a Gregorian ISO date and returns the
 // resulting Gregorian ISO date — this is how "Baligh at 15 Hijri years old"
 // actually has to be computed (a Hijri year is ~10-11 days shorter than a
@@ -340,7 +371,21 @@ function wasalBlock(m, s){
   } else if(s.totalPct>=100){
     banner = `<div class="rounded-lg p-3 mt-2 text-sm font-bold" style="background:var(--emerald-pale);color:var(--emerald-deep)">✅ Alhamdulillah — ${esc(m.name)} ki tamam Qaza Namaz mukammal ho chuki hai. Allah qabool farmaye. 🤲</div>`;
   }
-  return `<div class="text-xs text-gray-500 mt-1">🕊️ Wasal: ${esc(m.dod)} <span class="text-gray-400">(${esc(hijri)})</span> · Agli Barsi: ${nextLabel}</div>${banner}`;
+  return `<div class="text-xs text-gray-500 mt-1">🕊️ Wasal: ${esc(m.dod)} <span class="text-gray-400">(${esc(hijri)})</span> · Agli Barsi: ${nextLabel}</div>${ageAndDurationLine(m)}${banner}`;
+}
+// "Age at Wasal" (DOB → Wasal) and "Time since passing" (Wasal → today) —
+// both plain Gregorian calendar counts, auto-recalculated every time the
+// page renders (so the "time since passing" figure quietly stays current).
+function ageAndDurationLine(m){
+  const bits = [];
+  if(m.dob){
+    const age = gregorianDiffYMD(m.dob, m.dod);
+    if(age) bits.push(`Wasal ke waqt umar: <b>${formatYMD(age)}</b>`);
+  }
+  const since = gregorianDiffYMD(m.dod, todayISO());
+  if(since) bits.push(`Duniya se rukhsat hue: <b>${formatYMD(since, {showDays:true})}</b>`);
+  if(!bits.length) return '';
+  return `<div class="text-xs text-gray-500 mt-0.5">${bits.join(' · ')}</div>`;
 }
 
 /* Site-wide "🔔 Barsi Alerts" strip — shown at the top of EVERY page, to
@@ -638,7 +683,7 @@ function compressImage(file, maxDim, quality){
   // reddish/orange tint reported after uploading. {colorSpaceConversion:
   // 'default'} is what makes this path fix that; the canvas colorSpace option
   // below is a second safety net for browsers that support it.
-  return createImageBitmap(file, {colorSpaceConversion:'default'}).then(bitmap=>{
+  return createImageBitmap(file, {colorSpaceConversion:'default', imageOrientation:'from-image'}).then(bitmap=>{
     const {w,h} = fit(bitmap.width, bitmap.height);
     const out = draw(bitmap, w, h);
     if(bitmap.close) bitmap.close();
@@ -1076,7 +1121,10 @@ function oSetup(){
     ${c.hijriAutoVerify!==false ? `
       <p class="text-sm ${c.hijriVerifiedAt===todayISO()?'text-green-700':'text-amber-700'} font-semibold mb-1">
         ${c.hijriVerifiedAt===todayISO()
-          ? `✅ Internet se authentic verify ho chuki hai (${esc(HIJRI_COUNTRIES.find(h=>h.code===(c.hijriCountry||'PK'))?.label||'Pakistan')} ke hisaab se)${c.hijriVerifiedLabel?` — base: ${esc(c.hijriVerifiedLabel)}`:''}.`
+          ? (()=>{ const finalToday = hijriParts(new Date()); const countryLabel = esc(HIJRI_COUNTRIES.find(h=>h.code===(c.hijriCountry||'PK'))?.label||'Pakistan');
+              const finalStr = finalToday ? `${finalToday.day} ${HIJRI_MONTHS[finalToday.month-1]}, ${finalToday.year} AH` : '';
+              return `✅ ${countryLabel} ke hisaab se aaj <b>${esc(finalStr)}</b> hai.`
+                + (c.hijriVerifiedLabel ? ` (Internet/Saudi calendar ke mutabiq aaj wahan <b>${esc(c.hijriVerifiedLabel)}</b> hai — ${countryLabel} ka -1 din ka farq is mein already jama/adjust ho chuka hai, isi liye dono number alag lagte hain lekin dono sahi hain.)` : ''); })()
           : `⏳ Abhi tak verify nahi ho saki (internet ki zaroorat hai) — jab tak online nahi hote, last known-good adjustment (${(c.hijriAdjustDays||0)>0?'+':''}${c.hijriAdjustDays||0} din) istemal ho raha hai.`}
       </p>
       <p class="text-sm text-gray-600">Jaise hi device online hoga, Wasal ki Hijri tareekh aur Barsi Alert donon khud-ba-khud ${esc(HIJRI_COUNTRIES.find(h=>h.code===(c.hijriCountry||'PK'))?.label||'Pakistan')} ke mutabiq authentic tareekh par set ho jayenge — kuch bhi manually karne ki zaroorat nahi.</p>

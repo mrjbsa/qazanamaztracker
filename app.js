@@ -78,7 +78,12 @@ function emptyCounts(){ const o={}; PRAYERS.forEach(p=>o[p.key]=0); return o; }
    karke ya manually ±din adjust karke isay apni mulk ki announcement se match kar
    sakta hai. Yehi adjustment Wasal ki Hijri tareekh aur Barsi alert dono par lagta hai. */
 const HIJRI_COUNTRIES = [
-  {code:'PK', label:'Pakistan',        adjust:-1},
+  // Pakistan's -1 was a guess and turned out wrong — confirmed against two
+  // real Daily Kawish (Pakistan) front pages: 06-Jul-2026 = 20 Muharram 1448 AH,
+  // and 27-Sep-2026 = 14 Rabi' al-Thani 1448 AH. Our tabular formula with
+  // adjust:0 matches BOTH of those exactly, so 0 is the confirmed-accurate
+  // value for Pakistan, not -1.
+  {code:'PK', label:'Pakistan',        adjust:0},
   {code:'SA', label:'Saudi Arabia (Umm al-Qura)', adjust:0},
   {code:'IN', label:'India',           adjust:-1},
   {code:'BD', label:'Bangladesh',      adjust:-1},
@@ -105,35 +110,36 @@ async function verifyHijriOnline(){
   if(DB.config.hijriAutoVerify===false) return;      // owner switched to fully manual mode
   if(!navigator.onLine) return;
   if(DB.config.hijriVerifiedAt === todayISO()) return; // already verified today
+  // IMPORTANT: our own tabular Hijri formula (with the country offsets in
+  // HIJRI_COUNTRIES above) has been directly confirmed against real Pakistani
+  // press (Daily Kawish, two dates ~3 months apart) and matches exactly. The
+  // Aladhan API below uses a different (Saudi/Umm al-Qura-based) source that
+  // does NOT reliably match Pakistan's actual announced dates — blindly
+  // adding its drift on top of the confirmed-correct country offset is what
+  // previously caused the wrong "16" instead of "14" the owner reported. So:
+  // the country-based tabular value below is always what's actually USED
+  // everywhere in the app; the API call only records what an external source
+  // says, purely for the owner's own reference in Family Setup — it can never
+  // override the confirmed-correct value.
+  DB.config.hijriAdjustDays = countryAdjustDays();
   try{
     const now = new Date();
     const dd = String(now.getDate()).padStart(2,'0');
     const mm = String(now.getMonth()+1).padStart(2,'0');
     const yyyy = now.getFullYear();
     const res = await fetch(`https://api.aladhan.com/v1/gToH/${dd}-${mm}-${yyyy}`);
-    if(!res.ok) return;
-    const json = await res.json();
-    const h = json && json.data && json.data.hijri;
-    if(!h) return;
-    const apiDay = Number(h.day), apiMonth = Number(h.month && h.month.number), apiYear = Number(h.year);
-    if(!apiDay || !apiMonth || !apiYear) return;
-    const jdnApi = hijriToJDN(apiYear, apiMonth, apiDay);
-    const jdnToday = gregorianToJDN(yyyy, now.getMonth()+1, now.getDate());
-    // The API returns the Umm al-Qura (Saudi) calendar. Pakistan's Rooyat-e-Hilal
-    // committee — and most other countries — commonly announce the new month a
-    // day (sometimes two) after Saudi's sighting, so the authentic LOCAL date
-    // for the owner's selected country = API's calendar date + that country's
-    // fixed offset. hijriApiDelta is the pure internet-verified drift-correction
-    // (kept separate so switching country later doesn't need a fresh network
-    // call); hijriAdjustDays is what's actually used everywhere and additionally
-    // bakes in the country offset (Pakistan, -1 day, by default).
-    DB.config.hijriApiDelta = jdnApi - jdnToday;
-    DB.config.hijriAdjustDays = DB.config.hijriApiDelta + countryAdjustDays();
-    DB.config.hijriVerifiedAt = todayISO();
-    DB.config.hijriVerifiedLabel = `${apiDay} ${HIJRI_MONTHS[apiMonth-1] || (h.month&&h.month.en) || ''}, ${apiYear} AH (Umm al-Qura)`;
-    saveDB();
-    render();
-  }catch(e){ /* offline / API unreachable — silently keep the last verified (or manual) adjustment */ }
+    if(res.ok){
+      const json = await res.json();
+      const h = json && json.data && json.data.hijri;
+      const apiDay = h && Number(h.day), apiMonth = h && Number(h.month && h.month.number), apiYear = h && Number(h.year);
+      if(apiDay && apiMonth && apiYear){
+        DB.config.hijriVerifiedLabel = `${apiDay} ${HIJRI_MONTHS[apiMonth-1] || (h.month&&h.month.en) || ''}, ${apiYear} AH (Umm al-Qura, reference only)`;
+      }
+    }
+  }catch(e){ /* offline / API unreachable — doesn't matter, the confirmed tabular value above is already set */ }
+  DB.config.hijriVerifiedAt = todayISO();
+  saveDB();
+  render();
 }
 function countryAdjustDays(){
   const preset = HIJRI_COUNTRIES.find(hc=>hc.code===(DB.config.hijriCountry||'PK'));
@@ -427,12 +433,12 @@ function defaultDB(){
       logo:null,
       ownerAccount:null,   // {name,password,photo} set on first run
       anniversaryFormat:'gregorian',  // 'gregorian' or 'hijri' — which calendar the Barsi alert fires on
-      hijriCountry:'PK',      // which country's moon-sighting convention to use (default Pakistan) — applies in BOTH Auto and Manual mode
-      hijriAdjustDays:-1,     // final day-offset actually used everywhere (Wasal date, Barsi date/alerts) — auto-recomputed when verified online or when country changes
-      hijriAutoVerify:true,   // true = keep the Hijri date internet-verified automatically; false = use the manual ±1-day nudge buttons instead
-      hijriApiDelta:null,     // raw drift between our tabular calendar and the internet-verified (Umm al-Qura) calendar — kept separately so changing country never needs a fresh network call
-      hijriVerifiedAt:null,   // ISO date this device last successfully verified the Hijri offset online
-      hijriVerifiedLabel:null,// e.g. "12 Rabi' al-Awwal, 1447 AH (Umm al-Qura)" — the authentic base date last confirmed online, before the country offset is applied
+      hijriCountry:'PK',      // which country's moon-sighting convention to use (default Pakistan, confirmed adjust:0 — see HIJRI_COUNTRIES above)
+      hijriAdjustDays:0,      // final day-offset actually used everywhere (Wasal date, Barsi date/alerts) — always = the selected country's confirmed offset
+      hijriAutoVerify:true,   // true = keep checking the internet daily (for the "last verified" status); false = use the manual ±1-day nudge buttons instead
+      hijriVerifiedAt:null,   // ISO date this device last checked in online
+      hijriVerifiedLabel:null,// external reference value shown in Family Setup only — never overrides the confirmed country-based calculation above
+      hijriApiDelta:null,     // deprecated — no longer used in any calculation, kept only so old saved data doesn't error
       driveAccountEmail:null,  // once set, only this Gmail may connect Google Drive for this family
       baligh:{ maleHijriYears:15, femaleHijriYears:9 } // age (in Hijri/qamari years) at which Namaz becomes Wajib — adjustable in Settings
     },
@@ -458,11 +464,21 @@ function loadDB(){
     if(!raw) return defaultDB();
     const parsed = JSON.parse(raw);
     const d = defaultDB();
-    return Object.assign(d, parsed, {
+    const merged = Object.assign(d, parsed, {
       config: Object.assign(d.config, parsed.config||{}),
       tombstones: Object.assign(d.tombstones, parsed.tombstones||{}),
       meta: Object.assign(d.meta, parsed.meta||{})
     });
+    // One-time self-heal for devices that already saved the OLD, incorrect
+    // Pakistan offset (-1 day) from before this was confirmed against real
+    // Daily Kawish (Pakistan) newspaper dates and corrected to 0. Only
+    // resets it when it still exactly matches that old default AND the
+    // owner hasn't manually fine-tuned it — never overwrites a deliberate
+    // manual adjustment.
+    if(merged.config.hijriAutoVerify!==false && merged.config.hijriAdjustDays === -1 && (merged.config.hijriCountry||'PK')==='PK'){
+      merged.config.hijriAdjustDays = 0; // Pakistan's confirmed-correct offset (see HIJRI_COUNTRIES above)
+    }
+    return merged;
   }catch(e){ return defaultDB(); }
 }
 function saveDB(){
@@ -1119,17 +1135,15 @@ function oSetup(){
       ` : ''}
     </div>
     ${c.hijriAutoVerify!==false ? `
-      <p class="text-sm ${c.hijriVerifiedAt===todayISO()?'text-green-700':'text-amber-700'} font-semibold mb-1">
-        ${c.hijriVerifiedAt===todayISO()
-          ? (()=>{ const finalToday = hijriParts(new Date()); const countryLabel = esc(HIJRI_COUNTRIES.find(h=>h.code===(c.hijriCountry||'PK'))?.label||'Pakistan');
-              const finalStr = finalToday ? `${finalToday.day} ${HIJRI_MONTHS[finalToday.month-1]}, ${finalToday.year} AH` : '';
-              return `✅ ${countryLabel} ke hisaab se aaj <b>${esc(finalStr)}</b> hai.`
-                + (c.hijriVerifiedLabel ? ` (Internet/Saudi calendar ke mutabiq aaj wahan <b>${esc(c.hijriVerifiedLabel)}</b> hai — ${countryLabel} ka -1 din ka farq is mein already jama/adjust ho chuka hai, isi liye dono number alag lagte hain lekin dono sahi hain.)` : ''); })()
-          : `⏳ Abhi tak verify nahi ho saki (internet ki zaroorat hai) — jab tak online nahi hote, last known-good adjustment (${(c.hijriAdjustDays||0)>0?'+':''}${c.hijriAdjustDays||0} din) istemal ho raha hai.`}
+      <p class="text-sm text-green-700 font-semibold mb-1">
+        ${(()=>{ const finalToday = hijriParts(new Date()); const countryLabel = esc(HIJRI_COUNTRIES.find(h=>h.code===(c.hijriCountry||'PK'))?.label||'Pakistan');
+            const finalStr = finalToday ? `${finalToday.day} ${HIJRI_MONTHS[finalToday.month-1]}, ${finalToday.year} AH` : '';
+            return `✅ ${countryLabel} ke mutabiq aaj <b>${esc(finalStr)}</b> hai — Daily Kawish (Pakistan) ke real front-pages se confirm ki gayi calculation.`
+              + (c.hijriVerifiedAt===todayISO() && c.hijriVerifiedLabel ? `<br><span class="text-xs text-gray-400 font-normal">Sirf reference ke liye: internet (Saudi/Umm-al-Qura) calendar ke mutabiq aaj wahan ${esc(c.hijriVerifiedLabel)} hai — is se Pakistan ki tareekh par koi asar nahi parta.</span>` : ''); })()}
       </p>
-      <p class="text-sm text-gray-600">Jaise hi device online hoga, Wasal ki Hijri tareekh aur Barsi Alert donon khud-ba-khud ${esc(HIJRI_COUNTRIES.find(h=>h.code===(c.hijriCountry||'PK'))?.label||'Pakistan')} ke mutabiq authentic tareekh par set ho jayenge — kuch bhi manually karne ki zaroorat nahi.</p>
+      <p class="text-sm text-gray-600">Wasal ki Hijri tareekh aur Barsi Alert dono hamesha ${esc(HIJRI_COUNTRIES.find(h=>h.code===(c.hijriCountry||'PK'))?.label||'Pakistan')} ke confirmed calculation ke mutabiq set hote hain — kuch bhi manually karne ki zaroorat nahi.</p>
     ` : `
-      <p class="text-xs text-gray-400 mt-1">Base calculation Umm al-Qura (Saudi) calendar par hoti hai; upar wala adjustment usi mein add hota hai — yehi Wasal ki Hijri tareekh aur Barsi Alert dono par lagu hota hai.</p>
+      <p class="text-xs text-gray-400 mt-1">Base calculation ek standard tabular Hijri calendar par hoti hai (Pakistan ke liye Daily Kawish se confirm ki gayi); upar wala adjustment usi mein add hota hai — yehi Wasal ki Hijri tareekh aur Barsi Alert dono par lagu hota hai.</p>
     `}
   `) : ''}
   ${card(`
@@ -1179,11 +1193,7 @@ function setAnniversaryFormat(fmt){
 function setHijriCountry(code){
   const preset = HIJRI_COUNTRIES.find(hc=>hc.code===code);
   DB.config.hijriCountry = code;
-  // If we already have today's internet-verified delta, re-apply it with the
-  // new country's offset instantly — no need to hit the network again.
-  DB.config.hijriAdjustDays = (DB.config.hijriAutoVerify!==false && typeof DB.config.hijriApiDelta==='number')
-    ? DB.config.hijriApiDelta + (preset ? preset.adjust : 0)
-    : (preset ? preset.adjust : 0);
+  DB.config.hijriAdjustDays = preset ? preset.adjust : 0;
   saveDB();
   render();
 }

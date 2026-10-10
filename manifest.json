@@ -10,9 +10,81 @@
   "background_color": "#ffffff",
   "theme_color": "#0b3d30",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icon-192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "lang": "en",
+  "dir": "ltr",
+  "categories": [
+    "lifestyle",
+    "productivity",
+    "education"
+  ],
+  "prefer_related_applications": false,
+  "screenshots": [
+    {
+      "src": "screenshots/home-wide.png",
+      "sizes": "1590x780",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Home dashboard with today's verified Hijri date and Qaza totals"
+    },
+    {
+      "src": "screenshots/add-marhoom-wide.png",
+      "sizes": "1590x780",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Add a Marhoom with Wasal date and automatic Qaza calculation"
+    },
+    {
+      "src": "screenshots/about-wide.png",
+      "sizes": "1590x780",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Dua-e-Maghfirat tribute page"
+    },
+    {
+      "src": "screenshots/home-narrow.png",
+      "sizes": "720x1330",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Home dashboard on mobile"
+    },
+    {
+      "src": "screenshots/meri-namaz-narrow.png",
+      "sizes": "720x1330",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Register your own Qaza on mobile"
+    },
+    {
+      "src": "screenshots/backup-narrow.png",
+      "sizes": "720x1330",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Local backup and Google Drive sync"
+    }
   ]
 }

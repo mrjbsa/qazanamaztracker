@@ -11,5 +11,5 @@ Track and complete missed prayers for yourself and family.
 2. Add family member
 3. Start tracking Qaza
 
-Website: https://mrjbsa.github.io/qazanamaztracker/
+Website: https://qnt.themrjbworld.com/
 Contact: mrjbsa.official@outlook.com

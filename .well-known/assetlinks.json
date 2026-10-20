@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.themrjbworld.qnt.twa",
+        "sha256_cert_fingerprints": ["E8:30:CC:F5:CD:31:11:84:BE:E5:23:7B:97:3B:BC:C2:57:09:4C:C9:91:98:3B:45:AA:62:62:88:EE:43:59:63"]
+      }
+    }]

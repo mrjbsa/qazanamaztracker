@@ -45,42 +45,42 @@
   "prefer_related_applications": false,
   "screenshots": [
     {
-      "src": "shot-home-wide.png",
+      "src": "home-wide.png",
       "sizes": "1590x780",
       "type": "image/png",
       "form_factor": "wide",
       "label": "Home dashboard with today's verified Hijri date and Qaza totals"
     },
     {
-      "src": "shot-marhoom-wide.png",
+      "src": "add-marhoom-wide.png",
       "sizes": "1590x780",
       "type": "image/png",
       "form_factor": "wide",
       "label": "Add a Marhoom with Wasal date and automatic Qaza calculation"
     },
     {
-      "src": "shot-about-wide.png",
+      "src": "about-wide.png",
       "sizes": "1590x780",
       "type": "image/png",
       "form_factor": "wide",
       "label": "Dua-e-Maghfirat tribute page"
     },
     {
-      "src": "shot-home-narrow.png",
+      "src": "home-narrow.png",
       "sizes": "720x1330",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Home dashboard on mobile"
     },
     {
-      "src": "shot-meri-namaz-narrow.png",
+      "src": "meri-namaz-narrow.png",
       "sizes": "720x1330",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Register your own Qaza on mobile"
     },
     {
-      "src": "shot-backup-narrow.png",
+      "src": "backup-narrow.png",
       "sizes": "720x1330",
       "type": "image/png",
       "form_factor": "narrow",

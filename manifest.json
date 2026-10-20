@@ -45,46 +45,103 @@
   "prefer_related_applications": false,
   "screenshots": [
     {
-      "src": "screenshots/home-wide.png",
+      "src": "shot-home-wide.png",
       "sizes": "1590x780",
       "type": "image/png",
       "form_factor": "wide",
       "label": "Home dashboard with today's verified Hijri date and Qaza totals"
     },
     {
-      "src": "screenshots/add-marhoom-wide.png",
+      "src": "shot-marhoom-wide.png",
       "sizes": "1590x780",
       "type": "image/png",
       "form_factor": "wide",
       "label": "Add a Marhoom with Wasal date and automatic Qaza calculation"
     },
     {
-      "src": "screenshots/about-wide.png",
+      "src": "shot-about-wide.png",
       "sizes": "1590x780",
       "type": "image/png",
       "form_factor": "wide",
       "label": "Dua-e-Maghfirat tribute page"
     },
     {
-      "src": "screenshots/home-narrow.png",
+      "src": "shot-home-narrow.png",
       "sizes": "720x1330",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Home dashboard on mobile"
     },
     {
-      "src": "screenshots/meri-namaz-narrow.png",
+      "src": "shot-meri-namaz-narrow.png",
       "sizes": "720x1330",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Register your own Qaza on mobile"
     },
     {
-      "src": "screenshots/backup-narrow.png",
+      "src": "shot-backup-narrow.png",
       "sizes": "720x1330",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Local backup and Google Drive sync"
     }
-  ]
+  ],
+  "shortcuts": [
+    {
+      "name": "Ada Karein",
+      "short_name": "Ada Karein",
+      "description": "Mark Qaza prayers as completed",
+      "url": "./index.html?tab=ada",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Meri Namaz",
+      "short_name": "Meri Namaz",
+      "description": "Your own Qaza progress",
+      "url": "./index.html?tab=myqaza",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Family Progress",
+      "short_name": "Progress",
+      "description": "Family-wide Qaza progress and reports",
+      "url": "./index.html?tab=progress",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Dua & Maghfirat",
+      "short_name": "Dua",
+      "description": "Duas for the departed",
+      "url": "./index.html?tab=dua",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  }
 }
